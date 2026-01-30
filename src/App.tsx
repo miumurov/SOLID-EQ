@@ -259,7 +259,11 @@ function App() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const filtersRef = useRef<BiquadFilterNode[]>([]);
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const masterGainRef = useRef<GainNode | null>(null);
   const graphBuiltRef = useRef(false);
+  
+  // Timeline seeking state
+  const [isSeeking, setIsSeeking] = useState(false);
   
   // Debug state
   const [audioCtxState, setAudioCtxState] = useState<string>('not created');
@@ -328,6 +332,11 @@ function App() {
     const sourceNode = ctx.createMediaElementSource(audioEl);
     sourceNodeRef.current = sourceNode;
     
+    // Create master gain node for volume control
+    const masterGain = ctx.createGain();
+    masterGain.gain.value = volume;
+    masterGainRef.current = masterGain;
+    
     // Create EQ filter nodes
     const filters: BiquadFilterNode[] = EQ_FREQUENCIES.map((freq) => {
       const filter = ctx.createBiquadFilter();
@@ -344,28 +353,31 @@ function App() {
       filters[i].connect(filters[i + 1]);
     }
     
-    // Connect: source -> filters[0], filters[last] -> destination
+    // Connect: source -> filters[0], filters[last] -> masterGain -> destination
     // (Default non-bypassed state)
     sourceNode.connect(filters[0]);
-    filters[filters.length - 1].connect(ctx.destination);
+    filters[filters.length - 1].connect(masterGain);
+    masterGain.connect(ctx.destination);
     
     graphBuiltRef.current = true;
     setIsAudioContextInitialized(true);
     setWebAudioConnected(true);
     
     console.log('[SOLID EQ] Audio graph built successfully');
-  }, []);
+  }, [volume]);
 
   /**
    * Update bypass routing by reconnecting nodes.
    * MUST disconnect before reconnecting to avoid multiple paths.
+   * Chain: source -> (filters or bypass) -> masterGain -> destination
    */
   const updateBypassRouting = useCallback((bypass: boolean) => {
     const sourceNode = sourceNodeRef.current;
     const filters = filtersRef.current;
+    const masterGain = masterGainRef.current;
     const ctx = audioContextRef.current;
     
-    if (!sourceNode || !ctx || filters.length === 0) {
+    if (!sourceNode || !ctx || !masterGain || filters.length === 0) {
       console.log('[SOLID EQ] updateBypassRouting: graph not ready');
       return;
     }
@@ -379,22 +391,22 @@ function App() {
       // May already be disconnected
     }
     
-    // Disconnect last filter from destination
+    // Disconnect last filter from masterGain
     try {
-      filters[filters.length - 1].disconnect(ctx.destination);
+      filters[filters.length - 1].disconnect(masterGain);
     } catch {
       // May already be disconnected
     }
     
     if (bypass) {
-      // Bypass: source -> destination directly (skip filters)
-      sourceNode.connect(ctx.destination);
-      console.log('[SOLID EQ] Bypass ON: source -> destination');
+      // Bypass: source -> masterGain -> destination (skip filters)
+      sourceNode.connect(masterGain);
+      console.log('[SOLID EQ] Bypass ON: source -> masterGain -> destination');
     } else {
-      // Normal: source -> filters -> destination
+      // Normal: source -> filters -> masterGain -> destination
       sourceNode.connect(filters[0]);
-      filters[filters.length - 1].connect(ctx.destination);
-      console.log('[SOLID EQ] Bypass OFF: source -> filters -> destination');
+      filters[filters.length - 1].connect(masterGain);
+      console.log('[SOLID EQ] Bypass OFF: source -> filters -> masterGain -> destination');
     }
   }, []);
 
@@ -609,13 +621,21 @@ function App() {
     setCurrentTime(newTime);
   }, [duration]);
 
-  // Time update
+  // Time update - respect isSeeking state
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
-    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
-    const handleDurationChange = () => setDuration(audio.duration);
+    const handleTimeUpdate = () => {
+      // Don't update time while user is seeking
+      if (!isSeeking) {
+        setCurrentTime(audio.currentTime);
+      }
+    };
+    const handleDurationChange = () => {
+      const dur = audio.duration;
+      setDuration(isFinite(dur) ? dur : 0);
+    };
     const handleEnded = () => setIsPlaying(false);
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => setIsPlaying(false);
@@ -633,7 +653,7 @@ function App() {
       audio.removeEventListener('play', handlePlay);
       audio.removeEventListener('pause', handlePause);
     };
-  }, []);
+  }, [isSeeking]);
 
   const handleFileSelect = useCallback(async (file: File) => {
     const validTypes = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4', 'audio/x-m4a', 'audio/aac'];
@@ -738,18 +758,38 @@ function App() {
     }
   }, [audioSrc, isPlaying, gains, isBypassed, ensureAudioContext, buildAudioGraph, updateBypassRouting]);
 
-  const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!audioRef.current) return;
-    const time = parseFloat(e.target.value);
-    audioRef.current.currentTime = time;
-    setCurrentTime(time);
+  // Timeline seeking handlers
+  const handleSeekStart = useCallback(() => {
+    setIsSeeking(true);
   }, []);
 
+  const handleSeekChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const time = parseFloat(e.target.value);
+    setCurrentTime(time);
+    // Optionally update audio position live while dragging
+    if (audioRef.current && isFinite(time)) {
+      audioRef.current.currentTime = time;
+    }
+  }, []);
+
+  const handleSeekEnd = useCallback(() => {
+    setIsSeeking(false);
+  }, []);
+
+  // Volume control via master gain node
   const handleVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!audioRef.current) return;
     const vol = parseFloat(e.target.value);
-    audioRef.current.volume = vol;
     setVolume(vol);
+    
+    // Update master gain node (WebAudio volume control)
+    if (masterGainRef.current) {
+      masterGainRef.current.gain.value = vol;
+    }
+    
+    // Also update audio element volume as fallback
+    if (audioRef.current) {
+      audioRef.current.volume = vol;
+    }
   }, []);
 
   const handleGainChange = useCallback((index: number, value: number) => {
@@ -1052,10 +1092,14 @@ function App() {
                     type="range"
                     className="timeline-slider"
                     min={0}
-                    max={duration || 0}
+                    max={isFinite(duration) && duration > 0 ? duration : 100}
                     step={0.1}
                     value={currentTime}
-                    onChange={handleSeek}
+                    onChange={handleSeekChange}
+                    onMouseDown={handleSeekStart}
+                    onMouseUp={handleSeekEnd}
+                    onTouchStart={handleSeekStart}
+                    onTouchEnd={handleSeekEnd}
                   />
                   <div className="time-display">
                     <span>{formatTime(currentTime)}</span>
