@@ -264,6 +264,7 @@ function App() {
   
   // Timeline seeking state
   const [isSeeking, setIsSeeking] = useState(false);
+  const [seekValue, setSeekValue] = useState(0);
   
   // Debug state
   const [audioCtxState, setAudioCtxState] = useState<string>('not created');
@@ -627,14 +628,16 @@ function App() {
     if (!audio) return;
 
     const handleTimeUpdate = () => {
-      // Don't update time while user is seeking
+      // Update currentTime always for display
+      setCurrentTime(audio.currentTime);
+      // Only update seekValue when NOT seeking (user is not dragging)
       if (!isSeeking) {
-        setCurrentTime(audio.currentTime);
+        setSeekValue(audio.currentTime);
       }
     };
     const handleDurationChange = () => {
       const dur = audio.duration;
-      setDuration(isFinite(dur) ? dur : 0);
+      setDuration(isFinite(dur) && dur > 0 ? dur : 0);
     };
     const handleEnded = () => setIsPlaying(false);
     const handlePlay = () => setIsPlaying(true);
@@ -765,16 +768,18 @@ function App() {
 
   const handleSeekChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const time = parseFloat(e.target.value);
-    setCurrentTime(time);
-    // Optionally update audio position live while dragging
-    if (audioRef.current && isFinite(time)) {
-      audioRef.current.currentTime = time;
-    }
+    // Only update seekValue while dragging, don't update audio yet
+    setSeekValue(time);
   }, []);
 
   const handleSeekEnd = useCallback(() => {
+    // Apply the seek position to the audio element
+    if (audioRef.current && isFinite(seekValue)) {
+      audioRef.current.currentTime = seekValue;
+      setCurrentTime(seekValue);
+    }
     setIsSeeking(false);
-  }, []);
+  }, [seekValue]);
 
   // Volume control via master gain node
   const handleVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1087,22 +1092,23 @@ function App() {
                   )}
                 </button>
 
-                <div className="timeline-container">
+                <div className="timeline-wrap">
                   <input
                     type="range"
                     className="timeline-slider"
                     min={0}
-                    max={isFinite(duration) && duration > 0 ? duration : 100}
+                    max={duration}
                     step={0.1}
-                    value={currentTime}
+                    value={Math.min(seekValue, duration)}
                     onChange={handleSeekChange}
                     onMouseDown={handleSeekStart}
                     onMouseUp={handleSeekEnd}
                     onTouchStart={handleSeekStart}
                     onTouchEnd={handleSeekEnd}
+                    disabled={!duration}
                   />
                   <div className="time-display">
-                    <span>{formatTime(currentTime)}</span>
+                    <span>{formatTime(isSeeking ? seekValue : currentTime)}</span>
                     <span>{formatTime(duration)}</span>
                   </div>
                 </div>

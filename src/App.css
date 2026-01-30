@@ -411,7 +411,7 @@ body::after {
 }
 
 /* Timeline */
-.timeline-container {
+.timeline-wrap {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -430,6 +430,11 @@ body::after {
   border-radius: 2px;
   cursor: pointer;
   transition: background var(--transition-fast);
+}
+
+.timeline-slider:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .timeline-slider:hover {
