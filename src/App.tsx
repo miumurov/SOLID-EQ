@@ -602,7 +602,7 @@ function App() {
     }
   }, []);
 
-  const handleFileDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+  const handleFileDrop = useCallback((e: React.DragEvent<HTMLElement>) => {
     e.preventDefault();
     setIsDraggingOver(false);
     const file = e.dataTransfer.files[0];
