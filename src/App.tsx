@@ -246,6 +246,8 @@ function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [seekValue, setSeekValue] = useState(0);
   
   // Pro EQ features
   const [isBypassed, setIsBypassed] = useState(false);
@@ -623,7 +625,10 @@ function App() {
     const audio = audioRef.current;
     if (!audio) return;
     setCurrentTime(audio.currentTime);
-  }, []);
+    if (!isSeeking) {
+      setSeekValue(audio.currentTime);
+    }
+  }, [isSeeking]);
 
   const handleAudioLoadedMetadata = useCallback(() => {
     const audio = audioRef.current;
@@ -762,6 +767,7 @@ function App() {
     const newTime = Math.max(0, audioRef.current.currentTime - 5);
     audioRef.current.currentTime = newTime;
     setCurrentTime(newTime);
+    setSeekValue(newTime);
   }, []);
 
   const handleSkipForward = useCallback(() => {
@@ -769,7 +775,26 @@ function App() {
     const newTime = Math.min(duration, audioRef.current.currentTime + 5);
     audioRef.current.currentTime = newTime;
     setCurrentTime(newTime);
+    setSeekValue(newTime);
   }, [duration]);
+
+  // Timeline seeking handlers
+  const handleSeekPointerDown = useCallback(() => {
+    setIsSeeking(true);
+  }, []);
+
+  const handleSeekChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseFloat(e.target.value);
+    setSeekValue(value);
+  }, []);
+
+  const handleSeekPointerUp = useCallback(() => {
+    if (audioRef.current && isFinite(seekValue)) {
+      audioRef.current.currentTime = seekValue;
+      setCurrentTime(seekValue);
+    }
+    setIsSeeking(false);
+  }, [seekValue]);
 
   // Volume control via master gain node
   const handleVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1064,46 +1089,86 @@ function App() {
         <div className="card-content">
           {audioSrc ? (
             <>
-              <div className="now-playing">
-                <div className="track-icon">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              {/* Track Row */}
+              <div className="track-row">
+                <div className="track-artwork">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
                   </svg>
                 </div>
-                <div className="track-info">
-                  <div className="track-name">{fileName}</div>
-                  <div className="track-status">{isPlaying ? 'Playing' : 'Paused'}</div>
+                <div className="track-meta">
+                  <div className="track-title">{fileName}</div>
+                  <div className="track-subtitle">{isPlaying ? 'Playing' : 'Paused'}</div>
+                </div>
+                <div className="track-time">
+                  {formatTime(currentTime)} / {formatTime(duration)}
                 </div>
               </div>
 
-              <div className="player-controls">
-                <button className="play-btn" onClick={handlePlayPause} aria-label={isPlaying ? 'Pause' : 'Play'}>
-                  {isPlaying ? (
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
-                    </svg>
-                  ) : (
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M8 5v14l11-7z"/>
-                    </svg>
-                  )}
-                </button>
+              {/* Timeline Slider */}
+              <div className="timeline-container">
+                <input
+                  type="range"
+                  className="timeline-slider"
+                  min={0}
+                  max={duration || 0}
+                  step={0.01}
+                  value={Math.min(seekValue, duration || 0)}
+                  disabled={!duration || duration <= 0}
+                  onChange={handleSeekChange}
+                  onPointerDown={handleSeekPointerDown}
+                  onPointerUp={handleSeekPointerUp}
+                />
+              </div>
 
-                <div className="volume-control">
-                  <div className="volume-control-row">
-                    <svg className="volume-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
-                    </svg>
-                    <input
-                      type="range"
-                      className="volume-slider"
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      value={volume}
-                      onChange={handleVolumeChange}
-                    />
-                  </div>
+              {/* Controls Row */}
+              <div className="controls-row">
+                <div className="playback-buttons">
+                  <button 
+                    className="play-pause-btn" 
+                    onClick={handlePlayPause} 
+                    aria-label={isPlaying ? 'Pause' : 'Play'}
+                  >
+                    {isPlaying ? (
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
+                      </svg>
+                    ) : (
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M8 5v14l11-7z"/>
+                      </svg>
+                    )}
+                  </button>
+                  <button 
+                    className="skip-btn" 
+                    onClick={handleSkipBackward}
+                    disabled={!duration}
+                    aria-label="Skip backward 5 seconds"
+                  >
+                    −5s
+                  </button>
+                  <button 
+                    className="skip-btn" 
+                    onClick={handleSkipForward}
+                    disabled={!duration}
+                    aria-label="Skip forward 5 seconds"
+                  >
+                    +5s
+                  </button>
+                </div>
+                <div className="volume-group">
+                  <svg className="volume-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
+                  </svg>
+                  <input
+                    type="range"
+                    className="volume-slider"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={volume}
+                    onChange={handleVolumeChange}
+                  />
                 </div>
               </div>
             </>
@@ -1128,28 +1193,6 @@ function App() {
               className="waveform-canvas"
               onClick={handleWaveformClick}
             />
-          </div>
-          {/* Time display with skip buttons */}
-          <div className="waveform-time-controls">
-            <button 
-              className="skip-btn" 
-              onClick={handleSkipBackward}
-              disabled={!duration}
-              aria-label="Skip backward 5 seconds"
-            >
-              −5s
-            </button>
-            <span className="waveform-time-display">
-              {formatTime(currentTime)} / {formatTime(duration)}
-            </span>
-            <button 
-              className="skip-btn" 
-              onClick={handleSkipForward}
-              disabled={!duration}
-              aria-label="Skip forward 5 seconds"
-            >
-              +5s
-            </button>
           </div>
         </div>
       </section>
