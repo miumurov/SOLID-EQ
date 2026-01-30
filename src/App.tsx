@@ -622,41 +622,47 @@ function App() {
     setCurrentTime(newTime);
   }, [duration]);
 
-  // Time update - respect isSeeking state
-  useEffect(() => {
+  // Audio element event handlers (React handlers, not addEventListener)
+  const handleAudioTimeUpdate = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
-
-    const handleTimeUpdate = () => {
-      // Update currentTime always for display
-      setCurrentTime(audio.currentTime);
-      // Only update seekValue when NOT seeking (user is not dragging)
-      if (!isSeeking) {
-        setSeekValue(audio.currentTime);
-      }
-    };
-    const handleDurationChange = () => {
-      const dur = audio.duration;
-      setDuration(isFinite(dur) && dur > 0 ? dur : 0);
-    };
-    const handleEnded = () => setIsPlaying(false);
-    const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => setIsPlaying(false);
-
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('durationchange', handleDurationChange);
-    audio.addEventListener('ended', handleEnded);
-    audio.addEventListener('play', handlePlay);
-    audio.addEventListener('pause', handlePause);
-
-    return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('durationchange', handleDurationChange);
-      audio.removeEventListener('ended', handleEnded);
-      audio.removeEventListener('play', handlePlay);
-      audio.removeEventListener('pause', handlePause);
-    };
+    
+    // Update currentTime for display
+    setCurrentTime(audio.currentTime);
+    
+    // Only update seekValue when NOT seeking (user is not dragging)
+    if (!isSeeking) {
+      setSeekValue(audio.currentTime);
+    }
   }, [isSeeking]);
+
+  const handleAudioLoadedMetadata = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    
+    const dur = audio.duration;
+    setDuration(isFinite(dur) && dur > 0 ? dur : 0);
+  }, []);
+
+  const handleAudioDurationChange = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    
+    const dur = audio.duration;
+    setDuration(isFinite(dur) && dur > 0 ? dur : 0);
+  }, []);
+
+  const handleAudioEnded = useCallback(() => {
+    setIsPlaying(false);
+  }, []);
+
+  const handleAudioPlay = useCallback(() => {
+    setIsPlaying(true);
+  }, []);
+
+  const handleAudioPause = useCallback(() => {
+    setIsPlaying(false);
+  }, []);
 
   const handleFileSelect = useCallback(async (file: File) => {
     const validTypes = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4', 'audio/x-m4a', 'audio/aac'];
@@ -761,20 +767,22 @@ function App() {
     }
   }, [audioSrc, isPlaying, gains, isBypassed, ensureAudioContext, buildAudioGraph, updateBypassRouting]);
 
-  // Timeline seeking handlers
-  const handleSeekStart = useCallback(() => {
+  // Timeline seeking handlers using pointer events
+  const handleSeekPointerDown = useCallback(() => {
     setIsSeeking(true);
   }, []);
 
   const handleSeekChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const time = parseFloat(e.target.value);
-    // Only update seekValue while dragging, don't update audio yet
-    setSeekValue(time);
+    // Guard against NaN
+    if (isFinite(time)) {
+      setSeekValue(time);
+    }
   }, []);
 
-  const handleSeekEnd = useCallback(() => {
+  const handleSeekPointerUp = useCallback(() => {
     // Apply the seek position to the audio element
-    if (audioRef.current && isFinite(seekValue)) {
+    if (audioRef.current && isFinite(seekValue) && seekValue >= 0) {
       audioRef.current.currentTime = seekValue;
       setCurrentTime(seekValue);
     }
@@ -996,11 +1004,18 @@ function App() {
 
   return (
     <div className="app">
-      {/* Hidden audio element */}
+      {/* Hidden audio element with React event handlers */}
       <audio
         ref={audioRef}
         src={audioSrc || undefined}
         crossOrigin="anonymous"
+        preload="metadata"
+        onLoadedMetadata={handleAudioLoadedMetadata}
+        onDurationChange={handleAudioDurationChange}
+        onTimeUpdate={handleAudioTimeUpdate}
+        onEnded={handleAudioEnded}
+        onPlay={handleAudioPlay}
+        onPause={handleAudioPause}
       />
 
       {/* Header */}
@@ -1097,15 +1112,13 @@ function App() {
                     type="range"
                     className="timeline-slider"
                     min={0}
-                    max={duration}
+                    max={duration || 1}
                     step={0.1}
-                    value={Math.min(seekValue, duration)}
+                    value={Math.min(seekValue, duration || 0)}
                     onChange={handleSeekChange}
-                    onMouseDown={handleSeekStart}
-                    onMouseUp={handleSeekEnd}
-                    onTouchStart={handleSeekStart}
-                    onTouchEnd={handleSeekEnd}
-                    disabled={!duration}
+                    onPointerDown={handleSeekPointerDown}
+                    onPointerUp={handleSeekPointerUp}
+                    disabled={!duration || duration <= 0}
                   />
                   <div className="time-display">
                     <span>{formatTime(isSeeking ? seekValue : currentTime)}</span>
