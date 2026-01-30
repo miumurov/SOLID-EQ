@@ -93,6 +93,32 @@ body::after {
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
 }
 
+/* Debug UI - remove later */
+.debug-info {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.debug-badge {
+  font-size: 0.6875rem;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(255, 80, 80, 0.2);
+  color: #ff6b6b;
+  border: 1px solid rgba(255, 80, 80, 0.3);
+}
+
+.debug-badge.running,
+.debug-badge.connected {
+  background: rgba(80, 200, 120, 0.2);
+  color: #50c878;
+  border-color: rgba(80, 200, 120, 0.3);
+}
+
 .app-title {
   font-size: 1.625rem;
   font-weight: 600;

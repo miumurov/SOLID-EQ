@@ -258,8 +258,12 @@ function App() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const filtersRef = useRef<BiquadFilterNode[]>([]);
-  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
-  const isBypassedRef = useRef(false);
+  const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const graphBuiltRef = useRef(false);
+  
+  // Debug state
+  const [audioCtxState, setAudioCtxState] = useState<string>('not created');
+  const [webAudioConnected, setWebAudioConnected] = useState(false);
   
   // Waveform refs
   const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -267,80 +271,149 @@ function App() {
   const playheadRafRef = useRef<number>(0);
   const isPlayheadAnimatingRef = useRef(false);
 
-  const initializeAudioContext = useCallback(() => {
-    if (audioContextRef.current || !audioRef.current) return;
+  /**
+   * Ensure AudioContext exists and is running.
+   * Call this on any user gesture (play, file load, etc.)
+   */
+  const ensureAudioContext = useCallback(async () => {
+    // Create AudioContext if it doesn't exist
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext();
+      console.log('[SOLID EQ] AudioContext created');
+    }
+    
+    const ctx = audioContextRef.current;
+    
+    // Resume if suspended (required after user gesture)
+    if (ctx.state !== 'running') {
+      try {
+        await ctx.resume();
+        console.log('[SOLID EQ] AudioContext resumed, state:', ctx.state);
+      } catch (err) {
+        console.error('[SOLID EQ] Failed to resume AudioContext:', err);
+      }
+    }
+    
+    setAudioCtxState(ctx.state);
+    return ctx;
+  }, []);
 
-    const audioContext = new AudioContext();
-    audioContextRef.current = audioContext;
-
-    // Create source from audio element
-    const source = audioContext.createMediaElementSource(audioRef.current);
-    sourceRef.current = source;
-
-    // Create EQ filters
-    const filters = EQ_FREQUENCIES.map((freq, index) => {
-      const filter = audioContext.createBiquadFilter();
+  /**
+   * Build the audio graph ONCE.
+   * MediaElementAudioSourceNode can only be created once per <audio> element.
+   */
+  const buildAudioGraph = useCallback(() => {
+    const audioEl = audioRef.current;
+    const ctx = audioContextRef.current;
+    
+    if (!audioEl || !ctx) {
+      console.log('[SOLID EQ] buildAudioGraph: missing audio element or context');
+      return;
+    }
+    
+    // CRITICAL: Only create MediaElementAudioSourceNode ONCE
+    if (sourceNodeRef.current) {
+      console.log('[SOLID EQ] buildAudioGraph: source already exists, skipping');
+      return;
+    }
+    
+    if (graphBuiltRef.current) {
+      console.log('[SOLID EQ] buildAudioGraph: graph already built, skipping');
+      return;
+    }
+    
+    console.log('[SOLID EQ] Building audio graph...');
+    
+    // Create source node (ONLY ONCE per audio element)
+    const sourceNode = ctx.createMediaElementSource(audioEl);
+    sourceNodeRef.current = sourceNode;
+    
+    // Create EQ filter nodes
+    const filters: BiquadFilterNode[] = EQ_FREQUENCIES.map((freq) => {
+      const filter = ctx.createBiquadFilter();
       filter.type = 'peaking';
       filter.frequency.value = freq;
       filter.Q.value = Q_VALUE;
-      filter.gain.value = gains[index];
+      filter.gain.value = 0; // Start flat, will be updated by useEffect
       return filter;
     });
     filtersRef.current = filters;
-
-    // Chain filters together
+    
+    // Chain filters: filter[0] -> filter[1] -> ... -> filter[n-1]
     for (let i = 0; i < filters.length - 1; i++) {
       filters[i].connect(filters[i + 1]);
     }
-
-    // Connect based on bypass state
-    if (isBypassedRef.current) {
-      // Bypass: source -> destination directly
-      source.connect(audioContext.destination);
-    } else {
-      // Normal: source -> filters -> destination
-      source.connect(filters[0]);
-      filters[filters.length - 1].connect(audioContext.destination);
-    }
-
+    
+    // Connect: source -> filters[0], filters[last] -> destination
+    // (Default non-bypassed state)
+    sourceNode.connect(filters[0]);
+    filters[filters.length - 1].connect(ctx.destination);
+    
+    graphBuiltRef.current = true;
     setIsAudioContextInitialized(true);
-  }, [gains]);
+    setWebAudioConnected(true);
+    
+    console.log('[SOLID EQ] Audio graph built successfully');
+  }, []);
 
-  // Handle bypass toggle - disconnect/reconnect audio routing
+  /**
+   * Update bypass routing by reconnecting nodes.
+   * MUST disconnect before reconnecting to avoid multiple paths.
+   */
   const updateBypassRouting = useCallback((bypass: boolean) => {
-    const source = sourceRef.current;
+    const sourceNode = sourceNodeRef.current;
     const filters = filtersRef.current;
-    const audioContext = audioContextRef.current;
+    const ctx = audioContextRef.current;
     
-    if (!source || !audioContext || filters.length === 0) return;
+    if (!sourceNode || !ctx || filters.length === 0) {
+      console.log('[SOLID EQ] updateBypassRouting: graph not ready');
+      return;
+    }
     
-    // Disconnect everything from source
-    source.disconnect();
+    console.log('[SOLID EQ] Updating bypass routing, bypass:', bypass);
     
-    // Disconnect last filter from destination (if connected)
+    // Disconnect source from everything
     try {
-      filters[filters.length - 1].disconnect(audioContext.destination);
+      sourceNode.disconnect();
     } catch {
-      // May not be connected
+      // May already be disconnected
+    }
+    
+    // Disconnect last filter from destination
+    try {
+      filters[filters.length - 1].disconnect(ctx.destination);
+    } catch {
+      // May already be disconnected
     }
     
     if (bypass) {
-      // Bypass: source -> destination directly
-      source.connect(audioContext.destination);
+      // Bypass: source -> destination directly (skip filters)
+      sourceNode.connect(ctx.destination);
+      console.log('[SOLID EQ] Bypass ON: source -> destination');
     } else {
       // Normal: source -> filters -> destination
-      source.connect(filters[0]);
-      filters[filters.length - 1].connect(audioContext.destination);
+      sourceNode.connect(filters[0]);
+      filters[filters.length - 1].connect(ctx.destination);
+      console.log('[SOLID EQ] Bypass OFF: source -> filters -> destination');
     }
   }, []);
 
-  // Sync bypass ref and update routing when bypass state changes
+  // Update routing when bypass state changes
   useEffect(() => {
-    isBypassedRef.current = isBypassed;
-    if (isAudioContextInitialized) {
+    if (isAudioContextInitialized && graphBuiltRef.current) {
       updateBypassRouting(isBypassed);
     }
   }, [isBypassed, isAudioContextInitialized, updateBypassRouting]);
+
+  // Update AudioContext state display periodically
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (audioContextRef.current) {
+        setAudioCtxState(audioContextRef.current.state);
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, []);
 
   // Update filter gains
   useEffect(() => {
@@ -580,14 +653,21 @@ function App() {
     setCurrentTime(0);
     setIsPlaying(false);
 
-    // Resume AudioContext on user gesture
-    if (audioContextRef.current?.state === 'suspended') {
-      try {
-        await audioContextRef.current.resume();
-      } catch (err) {
-        console.error('Failed to resume AudioContext:', err);
+    // CRITICAL: Ensure AudioContext on user gesture (file select is a gesture)
+    await ensureAudioContext();
+    
+    // Build audio graph if not already built
+    // Note: We need to wait a tick for the audio element src to be set
+    setTimeout(() => {
+      if (!graphBuiltRef.current && audioContextRef.current) {
+        buildAudioGraph();
+        // Apply current gains
+        filtersRef.current.forEach((filter, index) => {
+          filter.gain.value = gains[index];
+        });
+        updateBypassRouting(isBypassed);
       }
-    }
+    }, 0);
 
     // Decode for export functionality
     try {
@@ -600,7 +680,7 @@ function App() {
       console.error('Failed to decode audio file:', err);
       setSourceBuffer(null);
     }
-  }, []);
+  }, [ensureAudioContext, buildAudioGraph, gains, isBypassed, updateBypassRouting]);
 
   const handleFileDrop = useCallback((e: React.DragEvent<HTMLElement>) => {
     e.preventDefault();
@@ -633,18 +713,18 @@ function App() {
   const handlePlayPause = useCallback(async () => {
     if (!audioRef.current || !audioSrc) return;
 
-    // Initialize AudioContext on user gesture if not already done
-    if (!isAudioContextInitialized) {
-      initializeAudioContext();
-    }
-
-    // Resume AudioContext if suspended
-    if (audioContextRef.current?.state === 'suspended') {
-      try {
-        await audioContextRef.current.resume();
-      } catch (err) {
-        console.error('Failed to resume AudioContext:', err);
-      }
+    // CRITICAL: Ensure AudioContext exists and is running on user gesture
+    await ensureAudioContext();
+    
+    // Build audio graph if not already built
+    if (!graphBuiltRef.current) {
+      buildAudioGraph();
+      // Apply current gains to the newly created filters
+      filtersRef.current.forEach((filter, index) => {
+        filter.gain.value = gains[index];
+      });
+      // Apply current bypass state
+      updateBypassRouting(isBypassed);
     }
 
     if (isPlaying) {
@@ -656,7 +736,7 @@ function App() {
         console.error('Failed to play audio:', err);
       }
     }
-  }, [audioSrc, isPlaying, isAudioContextInitialized, initializeAudioContext]);
+  }, [audioSrc, isPlaying, gains, isBypassed, ensureAudioContext, buildAudioGraph, updateBypassRouting]);
 
   const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     if (!audioRef.current) return;
@@ -881,6 +961,15 @@ function App() {
       {/* Header */}
       <header className="app-header">
         <h1 className="app-title">SOLID EQ</h1>
+        {/* Debug UI - remove later */}
+        <div className="debug-info">
+          <span className={`debug-badge ${audioCtxState === 'running' ? 'running' : ''}`}>
+            AudioContext: {audioCtxState}
+          </span>
+          {webAudioConnected && (
+            <span className="debug-badge connected">WebAudio connected</span>
+          )}
+        </div>
       </header>
 
       {/* Source Card */}
