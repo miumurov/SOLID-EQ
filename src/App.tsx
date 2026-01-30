@@ -262,10 +262,6 @@ function App() {
   const masterGainRef = useRef<GainNode | null>(null);
   const graphBuiltRef = useRef(false);
   
-  // Timeline seeking state
-  const [isSeeking, setIsSeeking] = useState(false);
-  const [seekValue, setSeekValue] = useState(0);
-  
   // Debug state
   const [audioCtxState, setAudioCtxState] = useState<string>('not created');
   const [webAudioConnected, setWebAudioConnected] = useState(false);
@@ -626,15 +622,8 @@ function App() {
   const handleAudioTimeUpdate = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    
-    // Update currentTime for display
     setCurrentTime(audio.currentTime);
-    
-    // Only update seekValue when NOT seeking (user is not dragging)
-    if (!isSeeking) {
-      setSeekValue(audio.currentTime);
-    }
-  }, [isSeeking]);
+  }, []);
 
   const handleAudioLoadedMetadata = useCallback(() => {
     const audio = audioRef.current;
@@ -767,27 +756,20 @@ function App() {
     }
   }, [audioSrc, isPlaying, gains, isBypassed, ensureAudioContext, buildAudioGraph, updateBypassRouting]);
 
-  // Timeline seeking handlers using pointer events
-  const handleSeekPointerDown = useCallback(() => {
-    setIsSeeking(true);
+  // Skip forward/backward handlers
+  const handleSkipBackward = useCallback(() => {
+    if (!audioRef.current) return;
+    const newTime = Math.max(0, audioRef.current.currentTime - 5);
+    audioRef.current.currentTime = newTime;
+    setCurrentTime(newTime);
   }, []);
 
-  const handleSeekChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const time = parseFloat(e.target.value);
-    // Guard against NaN
-    if (isFinite(time)) {
-      setSeekValue(time);
-    }
-  }, []);
-
-  const handleSeekPointerUp = useCallback(() => {
-    // Apply the seek position to the audio element
-    if (audioRef.current && isFinite(seekValue) && seekValue >= 0) {
-      audioRef.current.currentTime = seekValue;
-      setCurrentTime(seekValue);
-    }
-    setIsSeeking(false);
-  }, [seekValue]);
+  const handleSkipForward = useCallback(() => {
+    if (!audioRef.current || !duration) return;
+    const newTime = Math.min(duration, audioRef.current.currentTime + 5);
+    audioRef.current.currentTime = newTime;
+    setCurrentTime(newTime);
+  }, [duration]);
 
   // Volume control via master gain node
   const handleVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1107,25 +1089,6 @@ function App() {
                   )}
                 </button>
 
-                <div className="timeline-wrap">
-                  <input
-                    type="range"
-                    className="timeline-slider"
-                    min={0}
-                    max={duration || 1}
-                    step={0.1}
-                    value={Math.min(seekValue, duration || 0)}
-                    onChange={handleSeekChange}
-                    onPointerDown={handleSeekPointerDown}
-                    onPointerUp={handleSeekPointerUp}
-                    disabled={!duration || duration <= 0}
-                  />
-                  <div className="time-display">
-                    <span>{formatTime(isSeeking ? seekValue : currentTime)}</span>
-                    <span>{formatTime(duration)}</span>
-                  </div>
-                </div>
-
                 <div className="volume-control">
                   <div className="volume-control-row">
                     <svg className="volume-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -1165,6 +1128,28 @@ function App() {
               className="waveform-canvas"
               onClick={handleWaveformClick}
             />
+          </div>
+          {/* Time display with skip buttons */}
+          <div className="waveform-time-controls">
+            <button 
+              className="skip-btn" 
+              onClick={handleSkipBackward}
+              disabled={!duration}
+              aria-label="Skip backward 5 seconds"
+            >
+              −5s
+            </button>
+            <span className="waveform-time-display">
+              {formatTime(currentTime)} / {formatTime(duration)}
+            </span>
+            <button 
+              className="skip-btn" 
+              onClick={handleSkipForward}
+              disabled={!duration}
+              aria-label="Skip forward 5 seconds"
+            >
+              +5s
+            </button>
           </div>
         </div>
       </section>
