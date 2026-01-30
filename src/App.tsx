@@ -3,8 +3,8 @@ import './App.css';
 
 const EQ_FREQUENCIES = [60, 170, 350, 1000, 3500, 6000, 10000, 14000];
 const DEFAULT_GAIN = 0;
-const MIN_GAIN = -12;
-const MAX_GAIN = 12;
+const MIN_GAIN = -24;
+const MAX_GAIN = 24;
 const Q_VALUE = 1.0;
 const WAVEFORM_SAMPLES = 800; // Number of peak samples for waveform
 
@@ -1064,18 +1064,20 @@ function App() {
                 </div>
 
                 <div className="volume-control">
-                  <svg className="volume-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
-                  </svg>
-                  <input
-                    type="range"
-                    className="volume-slider"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={volume}
-                    onChange={handleVolumeChange}
-                  />
+                  <div className="volume-control-row">
+                    <svg className="volume-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
+                    </svg>
+                    <input
+                      type="range"
+                      className="volume-slider"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={volume}
+                      onChange={handleVolumeChange}
+                    />
+                  </div>
                 </div>
               </div>
             </>
