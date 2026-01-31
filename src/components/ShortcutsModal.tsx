@@ -65,6 +65,16 @@ const shortcutGroups = [
     ],
   },
   {
+    title: 'Stems',
+    shortcuts: [
+      { key: 'V', action: 'Toggle Vocals mute' },
+      { key: 'Shift+V', action: 'Solo Vocals' },
+      { key: 'A', action: 'Acapella mode' },
+      { key: 'I', action: 'Instrumental mode' },
+      { key: 'Esc', action: 'Cancel separation' },
+    ],
+  },
+  {
     title: 'Global',
     shortcuts: [
       { key: 'B', action: 'Toggle EQ bypass' },
