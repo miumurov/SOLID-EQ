@@ -116,7 +116,7 @@ export function MiniPlayer({ onShowShortcuts }: MiniPlayerProps) {
           </svg>
           <input
             type="range"
-            className="mini-volume-slider"
+            className="slider mini-volume-slider"
             min={0}
             max={1}
             step={0.01}

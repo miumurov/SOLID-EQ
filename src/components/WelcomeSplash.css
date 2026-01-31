@@ -1,109 +1,103 @@
+/* Welcome Splash - Premium Dark Glass */
 .splash-overlay {
   position: fixed;
   inset: 0;
-  z-index: 9999;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(ellipse at center, #151517 0%, #0b0b0c 70%, #050506 100%);
-  animation: splashFadeIn 0.5s ease-out;
+  background: #0a0a0b;
+  z-index: 5000;
 }
 
-@keyframes splashFadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+/* Ambient gradient */
+.splash-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: 
+    radial-gradient(ellipse 100% 60% at 50% 40%, rgba(120, 160, 255, 0.08), transparent 60%),
+    radial-gradient(ellipse 80% 50% at 60% 60%, rgba(168, 85, 247, 0.06), transparent 50%);
+  animation: ambientBreath 6s ease-in-out infinite;
 }
 
+@keyframes ambientBreath {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.02); }
+}
+
+/* Noise texture */
 .splash-noise {
   position: absolute;
   inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   opacity: 0.03;
   pointer-events: none;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  background-repeat: repeat;
 }
 
 .splash-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   text-align: center;
+  gap: 24px;
   z-index: 1;
 }
 
+/* "WELCOME TO" text */
 .splash-welcome {
-  font-size: 1rem;
-  font-weight: 400;
-  letter-spacing: 0.3em;
-  color: rgba(255, 255, 255, 0.5);
-  margin: 0 0 0.5rem;
-  animation: welcomeSlideIn 0.6s ease-out;
-}
-
-@keyframes welcomeSlideIn {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.splash-title {
-  font-size: clamp(3rem, 12vw, 6rem);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.35);
   margin: 0;
   opacity: 0;
-  transform: translateY(20px);
-  transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
-  text-shadow: 
-    0 0 30px rgba(255, 255, 255, 0.15),
-    0 0 60px rgba(255, 255, 255, 0.1),
-    0 0 90px rgba(255, 255, 255, 0.05);
+  animation: fadeSlideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards;
+}
+
+/* "SOLIDS" brand */
+.splash-title {
+  font-size: 64px;
+  font-weight: 700;
+  letter-spacing: 8px;
+  color: #f5f5f7;
+  margin: 0;
+  opacity: 0;
+  transform: scale(0.9) translateY(10px);
+  transition: all 1s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .splash-title.visible {
   opacity: 1;
-  transform: translateY(0);
-  animation: titleGlow 2s ease-in-out infinite;
+  transform: scale(1) translateY(0);
+  text-shadow: 
+    0 0 80px rgba(120, 160, 255, 0.4),
+    0 0 40px rgba(168, 85, 247, 0.2);
 }
 
-@keyframes titleGlow {
-  0%, 100% {
-    text-shadow: 
-      0 0 30px rgba(255, 255, 255, 0.15),
-      0 0 60px rgba(255, 255, 255, 0.1),
-      0 0 90px rgba(255, 255, 255, 0.05);
-  }
-  50% {
-    text-shadow: 
-      0 0 40px rgba(255, 255, 255, 0.25),
-      0 0 80px rgba(255, 255, 255, 0.15),
-      0 0 120px rgba(255, 255, 255, 0.1);
-  }
-}
-
+/* Continue button */
 .splash-continue {
-  margin-top: 3rem;
-  padding: 0.875rem 2.5rem;
-  font-size: 0.875rem;
-  font-weight: 500;
+  padding: 12px 36px;
+  font-size: 12px;
+  font-weight: 600;
   font-family: inherit;
-  letter-spacing: 0.1em;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 100px;
   cursor: pointer;
   opacity: 0;
   transform: translateY(10px);
-  transition: all 0.4s ease;
-  backdrop-filter: blur(10px);
+  transition: 
+    opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .splash-continue.visible {
@@ -112,16 +106,36 @@
 }
 
 .splash-continue:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.25);
-  box-shadow: 0 4px 20px rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 40px rgba(120, 160, 255, 0.15);
 }
 
 .splash-continue:active {
   transform: scale(0.98);
 }
 
-.splash-continue:focus {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.2);
+@keyframes fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .splash-title {
+    font-size: 42px;
+    letter-spacing: 5px;
+  }
+  
+  .splash-welcome {
+    font-size: 10px;
+    letter-spacing: 4px;
+  }
 }
