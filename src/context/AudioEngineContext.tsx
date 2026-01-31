@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { audioEngine, AudioEngineState, UserPreset, USER_PRESETS_KEY } from '../audio/AudioEngine';
+import { audioEngine, AudioEngineState, UserPreset, USER_PRESETS_KEY, DJSceneParams } from '../audio/AudioEngine';
 
 interface AudioEngineContextType {
   state: AudioEngineState;
@@ -37,6 +37,27 @@ interface AudioEngineContextType {
   setLoopOut: () => void;
   toggleLoop: () => void;
   clearLoop: () => void;
+  
+  // DJ Scenes
+  storeDjSceneA: () => void;
+  storeDjSceneB: () => void;
+  loadDjSceneA: () => void;
+  loadDjSceneB: () => void;
+  applyBuiltInDjScene: (name: string) => void;
+  morphToScene: (target: 'A' | 'B', durationMs?: number) => void;
+  cancelMorph: () => void;
+  applyDjParams: (params: DJSceneParams) => void;
+  
+  // Safe Mode
+  setSafeMode: (enabled: boolean) => void;
+  toggleSafeMode: () => void;
+  
+  // Recording
+  startRecording: () => void;
+  stopRecording: () => void;
+  toggleRecording: () => void;
+  downloadRecording: () => void;
+  clearRecording: () => void;
   
   // User presets
   userPresets: UserPreset[];
@@ -125,6 +146,27 @@ export function AudioEngineProvider({ children }: { children: ReactNode }) {
     setLoopOut: () => audioEngine.setLoopOut(),
     toggleLoop: () => audioEngine.toggleLoop(),
     clearLoop: () => audioEngine.clearLoop(),
+    
+    // DJ Scenes
+    storeDjSceneA: () => audioEngine.storeDjSceneA(),
+    storeDjSceneB: () => audioEngine.storeDjSceneB(),
+    loadDjSceneA: () => audioEngine.loadDjSceneA(),
+    loadDjSceneB: () => audioEngine.loadDjSceneB(),
+    applyBuiltInDjScene: (name) => audioEngine.applyBuiltInDjScene(name),
+    morphToScene: (target, durationMs) => audioEngine.morphToScene(target, durationMs),
+    cancelMorph: () => audioEngine.cancelMorph(),
+    applyDjParams: (params) => audioEngine.applyDjParams(params),
+    
+    // Safe Mode
+    setSafeMode: (enabled) => audioEngine.setSafeMode(enabled),
+    toggleSafeMode: () => audioEngine.toggleSafeMode(),
+    
+    // Recording
+    startRecording: () => audioEngine.startRecording(),
+    stopRecording: () => audioEngine.stopRecording(),
+    toggleRecording: () => audioEngine.toggleRecording(),
+    downloadRecording: () => audioEngine.downloadRecording(),
+    clearRecording: () => audioEngine.clearRecording(),
     
     // User presets
     userPresets,

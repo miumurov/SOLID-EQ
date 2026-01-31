@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useAudioEngine } from '../context/AudioEngineContext';
-import { WAVEFORM_SAMPLES } from '../audio/AudioEngine';
+import { WAVEFORM_SAMPLES, BUILT_IN_DJ_SCENES } from '../audio/AudioEngine';
 
 function computeWaveformPeaks(buffer: AudioBuffer, numSamples: number): number[] {
   const channelData = buffer.getChannelData(0);
@@ -36,7 +36,6 @@ export function DJPage() {
     loadFile,
     togglePlay,
     seek,
-    setVolume,
     setPlaybackRate,
     setDjFilterValue,
     setEchoMix,
@@ -50,42 +49,25 @@ export function DJPage() {
     setLoopOut,
     toggleLoop,
     clearLoop,
+    storeDjSceneA,
+    storeDjSceneB,
+    loadDjSceneA,
+    loadDjSceneB,
+    morphToScene,
+    cancelMorph,
+    applyBuiltInDjScene,
+    toggleRecording,
+    downloadRecording,
+    clearRecording,
   } = useAudioEngine();
 
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [selectedDjPreset, setSelectedDjPreset] = useState('');
   
   const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
   const waveformPeaksRef = useRef<number[]>([]);
   const playheadRafRef = useRef<number>(0);
   const isPlayheadAnimatingRef = useRef(false);
-
-  // Keyboard shortcuts for hot cues
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      
-      const key = e.key;
-      if (key >= '1' && key <= '4') {
-        const index = parseInt(key) - 1;
-        if (e.shiftKey) {
-          // Shift + number = set cue
-          setHotCue(index);
-        } else {
-          // Number only = trigger cue
-          triggerHotCue(index);
-        }
-      }
-      
-      // Space = play/pause
-      if (key === ' ') {
-        e.preventDefault();
-        togglePlay();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [setHotCue, triggerHotCue, togglePlay]);
 
   // Compute waveform peaks
   useEffect(() => {
@@ -283,6 +265,12 @@ export function DJPage() {
     return `HP +${value}`;
   };
 
+  const handleApplyDjPreset = useCallback(() => {
+    if (selectedDjPreset && BUILT_IN_DJ_SCENES[selectedDjPreset]) {
+      applyBuiltInDjScene(selectedDjPreset);
+    }
+  }, [selectedDjPreset, applyBuiltInDjScene]);
+
   return (
     <div className="page dj-page">
       {/* Deck Card */}
@@ -337,6 +325,11 @@ export function DJPage() {
       <section className="card transport-card">
         <div className="card-header">
           <h2 className="card-title">Transport</h2>
+          {state.isRecording && (
+            <span className="recording-badge">
+              ● REC {formatTime(state.recordingDuration)}
+            </span>
+          )}
         </div>
         <div className="card-content">
           <div className="transport-main">
@@ -357,18 +350,105 @@ export function DJPage() {
             </button>
           </div>
           
-          <div className="volume-control-dj">
-            <label className="control-label">Volume</label>
-            <input
-              type="range"
-              className="volume-slider-dj"
-              min={0}
-              max={1}
-              step={0.01}
-              value={state.volume}
-              onChange={(e) => setVolume(parseFloat(e.target.value))}
-            />
-            <span className="control-value">{Math.round(state.volume * 100)}%</span>
+          <div className="transport-record">
+            <button
+              className={`record-btn ${state.isRecording ? 'active' : ''}`}
+              onClick={toggleRecording}
+            >
+              <span className="rec-dot"></span>
+              {state.isRecording ? 'Stop Recording' : 'Record'}
+            </button>
+            {state.recordingBlob && !state.isRecording && (
+              <div className="recording-actions">
+                <button className="btn btn-sm btn-accent" onClick={downloadRecording}>
+                  Download Recording
+                </button>
+                <button className="btn btn-sm btn-secondary" onClick={clearRecording}>
+                  Discard
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* DJ Scenes Card */}
+      <section className="card scenes-card">
+        <div className="card-header">
+          <h2 className="card-title">DJ Scenes</h2>
+          {state.isMorphing && (
+            <span className="morph-indicator">Morphing...</span>
+          )}
+        </div>
+        <div className="card-content">
+          <div className="scenes-row">
+            <div className="scene-slot">
+              <div className="scene-controls">
+                <button
+                  className={`scene-btn ${state.activeDjScene === 'A' ? 'active' : ''}`}
+                  onClick={loadDjSceneA}
+                >
+                  A
+                </button>
+                <button className="scene-store-btn" onClick={storeDjSceneA} title="Store to A">
+                  ↓
+                </button>
+              </div>
+              <button 
+                className="morph-btn"
+                onClick={() => morphToScene('A')}
+                disabled={state.isMorphing}
+              >
+                Morph → A
+              </button>
+            </div>
+
+            <div className="scene-slot">
+              <div className="scene-controls">
+                <button
+                  className={`scene-btn ${state.activeDjScene === 'B' ? 'active' : ''}`}
+                  onClick={loadDjSceneB}
+                >
+                  B
+                </button>
+                <button className="scene-store-btn" onClick={storeDjSceneB} title="Store to B">
+                  ↓
+                </button>
+              </div>
+              <button 
+                className="morph-btn"
+                onClick={() => morphToScene('B')}
+                disabled={state.isMorphing}
+              >
+                Morph → B
+              </button>
+            </div>
+
+            {state.isMorphing && (
+              <button className="cancel-morph-btn" onClick={cancelMorph}>
+                Cancel
+              </button>
+            )}
+          </div>
+
+          <div className="scene-presets">
+            <select
+              className="preset-select"
+              value={selectedDjPreset}
+              onChange={(e) => setSelectedDjPreset(e.target.value)}
+            >
+              <option value="">Load Scene Preset...</option>
+              {Object.keys(BUILT_IN_DJ_SCENES).map(name => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+            <button 
+              className="btn btn-sm btn-secondary"
+              onClick={handleApplyDjPreset}
+              disabled={!selectedDjPreset}
+            >
+              Apply
+            </button>
           </div>
         </div>
       </section>

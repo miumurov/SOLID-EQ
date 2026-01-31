@@ -65,55 +65,36 @@ body::after {
 
 /* App Container */
 .app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-layout {
   max-width: 720px;
+  width: 100%;
   margin: 0 auto;
-  padding: 2rem 1.5rem 3rem;
+  padding: 72px 1.5rem 3rem; /* 72px = mini-player height + spacing */
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
 
-/* ============================================
-   Header
-   ============================================ */
-.app-header {
+.app-nav {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 0;
-  gap: 1rem;
-  position: relative;
-}
-
-.app-header::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-}
-
-.app-title {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: 1px;
-  margin: 0;
-}
-
-/* Navigation Tabs */
-.nav-tabs {
-  display: flex;
+  justify-content: center;
+  gap: 2px;
   background: rgba(255, 255, 255, 0.06);
   border-radius: 10px;
   padding: 3px;
-  gap: 2px;
+  margin-bottom: 0.5rem;
 }
 
+/* ============================================
+   Navigation Tabs
+   ============================================ */
 .nav-tab {
-  padding: 0.5rem 1.25rem;
+  padding: 0.5rem 1.5rem;
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--text-secondary);
@@ -131,30 +112,6 @@ body::after {
   color: var(--text-primary);
   background: rgba(255, 255, 255, 0.15);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
-}
-
-/* Debug UI */
-.debug-info {
-  display: flex;
-  gap: 0.375rem;
-  flex-wrap: wrap;
-}
-
-.debug-badge {
-  font-size: 0.625rem;
-  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
-  padding: 0.2rem 0.4rem;
-  border-radius: 4px;
-  background: rgba(255, 80, 80, 0.2);
-  color: #ff6b6b;
-  border: 1px solid rgba(255, 80, 80, 0.3);
-}
-
-.debug-badge.running,
-.debug-badge.connected {
-  background: rgba(80, 200, 120, 0.2);
-  color: #50c878;
-  border-color: rgba(80, 200, 120, 0.3);
 }
 
 /* App Main */
@@ -1094,13 +1051,9 @@ body::after {
    Responsive
    ============================================ */
 @media (max-width: 640px) {
-  .app {
-    padding: 1.5rem 1rem 2rem;
+  .app-layout {
+    padding: 68px 1rem 2rem;
     gap: 0.875rem;
-  }
-
-  .app-title {
-    font-size: 1.375rem;
   }
 
   .card {
@@ -1726,6 +1679,199 @@ audio {
 .loop-toggle-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* DJ Scenes Card */
+.scenes-card .card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.scenes-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.scene-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.scene-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.scene-btn {
+  width: 48px;
+  height: 48px;
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-family: inherit;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.scene-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+}
+
+.scene-btn.active {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #60a5fa;
+}
+
+.scene-store-btn {
+  width: 28px;
+  height: 28px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-tertiary);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.scene-store-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.morph-btn {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-family: inherit;
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.morph-btn:hover:not(:disabled) {
+  background: rgba(139, 92, 246, 0.25);
+}
+
+.morph-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cancel-morph-btn {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-family: inherit;
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.morph-indicator {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: #a78bfa;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.scene-presets {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: center;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.scene-presets .preset-select {
+  max-width: 180px;
+}
+
+/* Recording Badge */
+.recording-badge {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #f87171;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+/* Transport Record */
+.transport-record {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.record-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-family: inherit;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.record-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+}
+
+.record-btn.active {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.record-btn .rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  transition: all 0.15s ease;
+}
+
+.record-btn.active .rec-dot {
+  background: #ef4444;
+  animation: recPulse 1s ease-in-out infinite;
+}
+
+@keyframes recPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.recording-actions {
+  display: flex;
+  gap: 0.5rem;
 }
 
 /* DJ Page Responsive */
