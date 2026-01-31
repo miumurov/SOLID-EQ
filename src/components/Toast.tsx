@@ -1,30 +1,31 @@
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
-import './Toast.css';
+import { useState, useCallback, createContext, useContext, ReactNode } from 'react';
 
 interface ToastItem {
   id: number;
   message: string;
-  type: 'info' | 'success' | 'warning' | 'error';
 }
 
 interface ToastContextType {
-  showToast: (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
+  showToast: (message: string) => void;
 }
 
 const ToastContext = createContext<ToastContextType | null>(null);
 
-let toastId = 0;
+export function useToast() {
+  const ctx = useContext(ToastContext);
+  if (!ctx) throw new Error('useToast must be used within ToastProvider');
+  return ctx;
+}
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const idRef = { current: 0 };
 
-  const showToast = useCallback((message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
-    const id = ++toastId;
-    setToasts(prev => [...prev, { id, message, type }]);
-    
-    // Auto-dismiss after 2.5 seconds
+  const showToast = useCallback((message: string) => {
+    const id = ++idRef.current;
+    setToasts((prev) => [...prev, { id, message }]);
     setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
+      setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 2500);
   }, []);
 
@@ -32,20 +33,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={{ showToast }}>
       {children}
       <div className="toast-container">
-        {toasts.map(toast => (
-          <div key={toast.id} className={`toast toast-${toast.type}`}>
-            {toast.message}
+        {toasts.map((t) => (
+          <div key={t.id} className="toast-item">
+            {t.message}
           </div>
         ))}
       </div>
     </ToastContext.Provider>
   );
-}
-
-export function useToast() {
-  const context = useContext(ToastContext);
-  if (!context) {
-    throw new Error('useToast must be used within ToastProvider');
-  }
-  return context;
 }
