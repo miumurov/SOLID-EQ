@@ -1,6 +1,6 @@
 /**
  * Shared Audio Engine for SOLIDS
- * Manages the Web Audio graph shared across EQ and DJ pages
+ * Two-deck DJ system with crossfader
  */
 
 export const EQ_FREQUENCIES = [60, 170, 350, 1000, 3500, 6000, 10000, 14000];
@@ -9,6 +9,7 @@ export const MIN_GAIN = -24;
 export const MAX_GAIN = 24;
 export const Q_VALUE = 1.0;
 export const WAVEFORM_SAMPLES = 800;
+export const LOOP_MIN_GAP = 0.05;
 
 export const FLAT_GAINS = [0, 0, 0, 0, 0, 0, 0, 0];
 
@@ -32,7 +33,6 @@ export interface HotCue {
   label: string;
 }
 
-// DJ Scene parameters
 export interface DJSceneParams {
   playbackRate: number;
   djFilterValue: number;
@@ -41,7 +41,6 @@ export interface DJSceneParams {
   echoFeedback: number;
 }
 
-// Built-in DJ scenes
 export const BUILT_IN_DJ_SCENES: Record<string, DJSceneParams> = {
   'Clean': { playbackRate: 1.0, djFilterValue: 0, echoMix: 0, echoTime: 0.3, echoFeedback: 0.3 },
   'Club Echo': { playbackRate: 1.0, djFilterValue: 0, echoMix: 0.35, echoTime: 0.25, echoFeedback: 0.45 },
@@ -50,38 +49,67 @@ export const BUILT_IN_DJ_SCENES: Record<string, DJSceneParams> = {
   'Slowdown': { playbackRate: 0.8, djFilterValue: -30, echoMix: 0.4, echoTime: 0.5, echoFeedback: 0.5 },
 };
 
-export interface AudioEngineState {
-  // Track info
+// Per-deck state
+export interface DeckState {
   audioSrc: string | null;
   fileName: string | null;
   sourceBuffer: AudioBuffer | null;
-  
-  // Playback
   isPlaying: boolean;
   currentTime: number;
   duration: number;
-  volume: number;
+  playbackRate: number;
   
-  // EQ
+  // Per-deck FX
+  djFilterValue: number;
+  echoMix: number;
+  echoTime: number;
+  echoFeedback: number;
+  djBypass: boolean;
+  
+  // Per-deck hot cues and loop
+  hotCues: (HotCue | null)[];
+  loopIn: number | null;
+  loopOut: number | null;
+  loopEnabled: boolean;
+}
+
+const DEFAULT_DECK_STATE: DeckState = {
+  audioSrc: null,
+  fileName: null,
+  sourceBuffer: null,
+  isPlaying: false,
+  currentTime: 0,
+  duration: 0,
+  playbackRate: 1.0,
+  djFilterValue: 0,
+  echoMix: 0,
+  echoTime: 0.3,
+  echoFeedback: 0.4,
+  djBypass: false,
+  hotCues: [null, null, null, null],
+  loopIn: null,
+  loopOut: null,
+  loopEnabled: false,
+};
+
+export interface AudioEngineState {
+  // Deck states
+  deckA: DeckState;
+  deckB: DeckState;
+  activeDeck: 'A' | 'B';
+  
+  // Master
+  volume: number;
+  crossfader: number; // 0 = full A, 1 = full B, 0.5 = center
+  
+  // EQ (applied to Deck A only)
   gains: number[];
   isBypassed: boolean;
   activeSlot: 'A' | 'B';
   slotAGains: number[];
   slotBGains: number[];
   
-  // DJ
-  playbackRate: number;
-  djFilterValue: number;
-  echoMix: number;
-  echoTime: number;
-  echoFeedback: number;
-  djBypass: boolean;
-  hotCues: (HotCue | null)[];
-  loopIn: number | null;
-  loopOut: number | null;
-  loopEnabled: boolean;
-  
-  // DJ Scenes
+  // DJ Scenes (global)
   djSceneA: DJSceneParams;
   djSceneB: DJSceneParams;
   activeDjScene: 'A' | 'B';
@@ -111,61 +139,66 @@ const DEFAULT_DJ_SCENE: DJSceneParams = {
   echoFeedback: 0.4,
 };
 
-// Minimum gap between loopIn and loopOut
-const LOOP_MIN_GAP = 0.05;
-
 export class AudioEngine {
-  private audioElement: HTMLAudioElement | null = null;
+  // Audio elements
+  private audioElementA: HTMLAudioElement | null = null;
+  private audioElementB: HTMLAudioElement | null = null;
+  
+  // Audio context
   private audioContext: AudioContext | null = null;
-  private sourceNode: MediaElementAudioSourceNode | null = null;
-  private filters: BiquadFilterNode[] = [];
-  private masterGain: GainNode | null = null;
-  private djFilter: BiquadFilterNode | null = null;
-  private echoDelay: DelayNode | null = null;
-  private echoFeedbackGain: GainNode | null = null;
-  private echoMixGain: GainNode | null = null;
-  private echoDryGain: GainNode | null = null;
+  
+  // Deck A nodes
+  private sourceNodeA: MediaElementAudioSourceNode | null = null;
+  private filtersA: BiquadFilterNode[] = [];
+  private fxDryGainA: GainNode | null = null;
+  private fxWetGainA: GainNode | null = null;
+  private djFilterA: BiquadFilterNode | null = null;
+  private echoDelayA: DelayNode | null = null;
+  private echoFeedbackGainA: GainNode | null = null;
+  private echoMixGainA: GainNode | null = null;
+  private echoDryGainA: GainNode | null = null;
+  private deckGainA: GainNode | null = null;
+  
+  // Deck B nodes
+  private sourceNodeB: MediaElementAudioSourceNode | null = null;
+  private fxDryGainB: GainNode | null = null;
+  private fxWetGainB: GainNode | null = null;
+  private djFilterB: BiquadFilterNode | null = null;
+  private echoDelayB: DelayNode | null = null;
+  private echoFeedbackGainB: GainNode | null = null;
+  private echoMixGainB: GainNode | null = null;
+  private echoDryGainB: GainNode | null = null;
+  private deckGainB: GainNode | null = null;
+  
+  // Master nodes
+  private crossfadeGainA: GainNode | null = null;
+  private crossfadeGainB: GainNode | null = null;
+  private masterSum: GainNode | null = null;
   private compressor: DynamicsCompressorNode | null = null;
-  private preCompressorGain: GainNode | null = null;
-  
-  // FX bypass dry/wet routing
-  private fxDryGain: GainNode | null = null;
-  private fxWetGain: GainNode | null = null;
-  private postFxGain: GainNode | null = null;
-  
+  private masterGain: GainNode | null = null;
   private mediaStreamDest: MediaStreamAudioDestinationNode | null = null;
+  
   private mediaRecorder: MediaRecorder | null = null;
   private recordedChunks: Blob[] = [];
   private recordingStartTime: number = 0;
-  private graphBuilt = false;
+  private graphBuiltA = false;
+  private graphBuiltB = false;
   
   private listeners: Set<AudioEngineListener> = new Set();
   private animationFrameId: number | null = null;
   private morphAnimationId: number | null = null;
   
   private state: AudioEngineState = {
-    audioSrc: null,
-    fileName: null,
-    sourceBuffer: null,
-    isPlaying: false,
-    currentTime: 0,
-    duration: 0,
+    deckA: { ...DEFAULT_DECK_STATE },
+    deckB: { ...DEFAULT_DECK_STATE },
+    activeDeck: 'A',
     volume: 1,
+    crossfader: 0.5,
     gains: [...FLAT_GAINS],
     isBypassed: false,
     activeSlot: 'A',
     slotAGains: [...FLAT_GAINS],
     slotBGains: [...FLAT_GAINS],
-    playbackRate: 1.0,
-    djFilterValue: 0,
-    echoMix: 0,
-    echoTime: 0.3,
-    echoFeedback: 0.4,
-    djBypass: false,
-    hotCues: [null, null, null, null],
-    loopIn: null,
-    loopOut: null,
-    loopEnabled: false,
     djSceneA: { ...DEFAULT_DJ_SCENE },
     djSceneB: { ...DEFAULT_DJ_SCENE },
     activeDjScene: 'A',
@@ -185,44 +218,73 @@ export class AudioEngine {
 
   private startStateLoop() {
     const update = () => {
-      if (this.audioElement) {
-        const newTime = this.audioElement.currentTime;
-        const newDuration = isFinite(this.audioElement.duration) ? this.audioElement.duration : 0;
-        const newPlaying = !this.audioElement.paused;
+      let changed = false;
+      
+      // Update Deck A
+      if (this.audioElementA) {
+        const newTime = this.audioElementA.currentTime;
+        const newDuration = isFinite(this.audioElementA.duration) ? this.audioElementA.duration : 0;
+        const newPlaying = !this.audioElementA.paused;
         
-        let changed = false;
-        if (this.state.currentTime !== newTime) {
-          this.state.currentTime = newTime;
+        if (this.state.deckA.currentTime !== newTime) {
+          this.state.deckA.currentTime = newTime;
           changed = true;
         }
-        if (this.state.duration !== newDuration) {
-          this.state.duration = newDuration;
+        if (this.state.deckA.duration !== newDuration) {
+          this.state.deckA.duration = newDuration;
           changed = true;
         }
-        if (this.state.isPlaying !== newPlaying) {
-          this.state.isPlaying = newPlaying;
+        if (this.state.deckA.isPlaying !== newPlaying) {
+          this.state.deckA.isPlaying = newPlaying;
           changed = true;
         }
         
-        // Update recording duration
-        if (this.state.isRecording && this.recordingStartTime > 0) {
-          const newRecDur = (Date.now() - this.recordingStartTime) / 1000;
-          if (Math.floor(newRecDur) !== Math.floor(this.state.recordingDuration)) {
-            this.state.recordingDuration = newRecDur;
-            changed = true;
+        // Loop handling Deck A
+        if (this.state.deckA.loopEnabled && this.state.deckA.loopIn !== null && this.state.deckA.loopOut !== null) {
+          if (newTime >= this.state.deckA.loopOut) {
+            this.audioElementA.currentTime = this.state.deckA.loopIn;
           }
         }
+      }
+      
+      // Update Deck B
+      if (this.audioElementB) {
+        const newTime = this.audioElementB.currentTime;
+        const newDuration = isFinite(this.audioElementB.duration) ? this.audioElementB.duration : 0;
+        const newPlaying = !this.audioElementB.paused;
         
-        if (changed) {
-          this.notifyListeners();
+        if (this.state.deckB.currentTime !== newTime) {
+          this.state.deckB.currentTime = newTime;
+          changed = true;
+        }
+        if (this.state.deckB.duration !== newDuration) {
+          this.state.deckB.duration = newDuration;
+          changed = true;
+        }
+        if (this.state.deckB.isPlaying !== newPlaying) {
+          this.state.deckB.isPlaying = newPlaying;
+          changed = true;
         }
         
-        // Loop handling
-        if (this.state.loopEnabled && this.state.loopIn !== null && this.state.loopOut !== null) {
-          if (newTime >= this.state.loopOut) {
-            this.audioElement.currentTime = this.state.loopIn;
+        // Loop handling Deck B
+        if (this.state.deckB.loopEnabled && this.state.deckB.loopIn !== null && this.state.deckB.loopOut !== null) {
+          if (newTime >= this.state.deckB.loopOut) {
+            this.audioElementB.currentTime = this.state.deckB.loopIn;
           }
         }
+      }
+      
+      // Update recording duration
+      if (this.state.isRecording && this.recordingStartTime > 0) {
+        const newRecDur = (Date.now() - this.recordingStartTime) / 1000;
+        if (Math.floor(newRecDur) !== Math.floor(this.state.recordingDuration)) {
+          this.state.recordingDuration = newRecDur;
+          changed = true;
+        }
+      }
+      
+      if (changed) {
+        this.notifyListeners();
       }
       
       if (this.audioContext) {
@@ -253,16 +315,26 @@ export class AudioEngine {
     return { ...this.state };
   }
 
-  setAudioElement(element: HTMLAudioElement) {
-    this.audioElement = element;
-    
+  setAudioElementA(element: HTMLAudioElement) {
+    this.audioElementA = element;
     element.addEventListener('loadedmetadata', () => {
-      this.state.duration = isFinite(element.duration) ? element.duration : 0;
+      this.state.deckA.duration = isFinite(element.duration) ? element.duration : 0;
       this.notifyListeners();
     });
-    
     element.addEventListener('ended', () => {
-      this.state.isPlaying = false;
+      this.state.deckA.isPlaying = false;
+      this.notifyListeners();
+    });
+  }
+
+  setAudioElementB(element: HTMLAudioElement) {
+    this.audioElementB = element;
+    element.addEventListener('loadedmetadata', () => {
+      this.state.deckB.duration = isFinite(element.duration) ? element.duration : 0;
+      this.notifyListeners();
+    });
+    element.addEventListener('ended', () => {
+      this.state.deckB.isPlaying = false;
       this.notifyListeners();
     });
   }
@@ -287,74 +359,21 @@ export class AudioEngine {
     return this.audioContext;
   }
 
-  buildAudioGraph() {
-    if (!this.audioElement || !this.audioContext) {
-      console.log('[AudioEngine] buildAudioGraph: missing audio element or context');
-      return;
-    }
+  private buildMasterChain() {
+    if (!this.audioContext) return;
     
-    if (this.graphBuilt) {
-      console.log('[AudioEngine] buildAudioGraph: already built');
-      return;
-    }
-    
-    console.log('[AudioEngine] Building audio graph...');
     const ctx = this.audioContext;
     
-    // Source node (only once per audio element)
-    this.sourceNode = ctx.createMediaElementSource(this.audioElement);
+    // Crossfade gains
+    this.crossfadeGainA = ctx.createGain();
+    this.crossfadeGainB = ctx.createGain();
+    this.updateCrossfade();
     
-    // EQ filter nodes
-    this.filters = EQ_FREQUENCIES.map((freq, index) => {
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'peaking';
-      filter.frequency.value = freq;
-      filter.Q.value = Q_VALUE;
-      filter.gain.value = this.state.gains[index];
-      return filter;
-    });
+    // Master sum
+    this.masterSum = ctx.createGain();
+    this.masterSum.gain.value = 1;
     
-    // Chain EQ filters
-    for (let i = 0; i < this.filters.length - 1; i++) {
-      this.filters[i].connect(this.filters[i + 1]);
-    }
-    
-    // DJ Filter (lowpass/highpass)
-    this.djFilter = ctx.createBiquadFilter();
-    this.djFilter.type = 'lowpass';
-    this.djFilter.frequency.value = 20000;
-    this.djFilter.Q.value = 0.7;
-    
-    // FX bypass dry/wet routing
-    // preFX -> fxDryGain -> postFxGain (dry path - always connected)
-    // preFX -> fxChain -> fxWetGain -> postFxGain (wet path)
-    this.fxDryGain = ctx.createGain();
-    this.fxDryGain.gain.value = this.state.djBypass ? 1 : 0;
-    
-    this.fxWetGain = ctx.createGain();
-    this.fxWetGain.gain.value = this.state.djBypass ? 0 : 1;
-    
-    this.postFxGain = ctx.createGain();
-    this.postFxGain.gain.value = 1;
-    
-    // Echo effect chain
-    this.echoDelay = ctx.createDelay(2.0);
-    this.echoDelay.delayTime.value = this.state.echoTime;
-    
-    this.echoFeedbackGain = ctx.createGain();
-    this.echoFeedbackGain.gain.value = this.state.echoFeedback;
-    
-    this.echoMixGain = ctx.createGain();
-    this.echoMixGain.gain.value = this.state.echoMix;
-    
-    this.echoDryGain = ctx.createGain();
-    this.echoDryGain.gain.value = 1;
-    
-    // Pre-compressor gain (for routing)
-    this.preCompressorGain = ctx.createGain();
-    this.preCompressorGain.gain.value = 1;
-    
-    // Compressor/Limiter for Safe Mode
+    // Compressor for Safe Mode
     this.compressor = ctx.createDynamicsCompressor();
     this.compressor.threshold.value = -6;
     this.compressor.ratio.value = 12;
@@ -366,181 +385,447 @@ export class AudioEngine {
     this.masterGain = ctx.createGain();
     this.masterGain.gain.value = this.state.volume;
     
-    // MediaStream destination for recording
+    // Recording destination
     this.mediaStreamDest = ctx.createMediaStreamDestination();
     
-    // Connect the graph
-    this.connectGraph();
+    // Connect master chain
+    this.crossfadeGainA.connect(this.masterSum);
+    this.crossfadeGainB.connect(this.masterSum);
     
-    this.graphBuilt = true;
-    this.state.webAudioConnected = true;
-    this.notifyListeners();
+    if (this.state.safeModeEnabled) {
+      this.masterSum.connect(this.compressor);
+      this.compressor.connect(this.masterGain);
+    } else {
+      this.masterSum.connect(this.masterGain);
+    }
     
-    console.log('[AudioEngine] Audio graph built successfully');
+    this.masterGain.connect(ctx.destination);
+    this.masterGain.connect(this.mediaStreamDest);
   }
 
-  private connectGraph() {
-    if (!this.sourceNode || !this.audioContext || !this.masterGain || !this.djFilter || 
-        !this.preCompressorGain || !this.fxDryGain || !this.fxWetGain || !this.postFxGain) return;
+  buildDeckAGraph() {
+    if (!this.audioElementA || !this.audioContext) return;
+    if (this.graphBuiltA) return;
     
+    console.log('[AudioEngine] Building Deck A graph...');
     const ctx = this.audioContext;
-    const lastFilter = this.filters[this.filters.length - 1];
     
-    // Disconnect everything first
-    try { this.sourceNode.disconnect(); } catch {}
+    // Ensure master chain exists
+    if (!this.masterSum) {
+      this.buildMasterChain();
+    }
+    
+    // Source
+    this.sourceNodeA = ctx.createMediaElementSource(this.audioElementA);
+    
+    // EQ filters (Deck A only)
+    this.filtersA = EQ_FREQUENCIES.map((freq, index) => {
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'peaking';
+      filter.frequency.value = freq;
+      filter.Q.value = Q_VALUE;
+      filter.gain.value = this.state.gains[index];
+      return filter;
+    });
+    
+    for (let i = 0; i < this.filtersA.length - 1; i++) {
+      this.filtersA[i].connect(this.filtersA[i + 1]);
+    }
+    
+    // FX bypass dry/wet
+    this.fxDryGainA = ctx.createGain();
+    this.fxWetGainA = ctx.createGain();
+    this.fxDryGainA.gain.value = this.state.deckA.djBypass ? 1 : 0;
+    this.fxWetGainA.gain.value = this.state.deckA.djBypass ? 0 : 1;
+    
+    // DJ Filter
+    this.djFilterA = ctx.createBiquadFilter();
+    this.djFilterA.type = 'lowpass';
+    this.djFilterA.frequency.value = 20000;
+    this.djFilterA.Q.value = 0.7;
+    
+    // Echo
+    this.echoDelayA = ctx.createDelay(2.0);
+    this.echoDelayA.delayTime.value = this.state.deckA.echoTime;
+    this.echoFeedbackGainA = ctx.createGain();
+    this.echoFeedbackGainA.gain.value = this.state.deckA.echoFeedback;
+    this.echoMixGainA = ctx.createGain();
+    this.echoMixGainA.gain.value = this.state.deckA.echoMix;
+    this.echoDryGainA = ctx.createGain();
+    this.echoDryGainA.gain.value = 1;
+    
+    // Deck gain
+    this.deckGainA = ctx.createGain();
+    this.deckGainA.gain.value = 1;
+    
+    // Connect Deck A
+    this.connectDeckA();
+    
+    this.graphBuiltA = true;
+    this.state.webAudioConnected = true;
+    this.notifyListeners();
+    console.log('[AudioEngine] Deck A graph built');
+  }
+
+  private connectDeckA() {
+    if (!this.sourceNodeA || !this.crossfadeGainA) return;
+    
+    const lastFilter = this.filtersA[this.filtersA.length - 1];
+    
+    // Disconnect
+    try { this.sourceNodeA.disconnect(); } catch {}
     try { lastFilter?.disconnect(); } catch {}
-    try { this.fxDryGain.disconnect(); } catch {}
-    try { this.fxWetGain.disconnect(); } catch {}
-    try { this.postFxGain.disconnect(); } catch {}
-    try { this.djFilter.disconnect(); } catch {}
-    try { this.echoDryGain?.disconnect(); } catch {}
-    try { this.echoDelay?.disconnect(); } catch {}
-    try { this.echoMixGain?.disconnect(); } catch {}
-    try { this.echoFeedbackGain?.disconnect(); } catch {}
-    try { this.preCompressorGain?.disconnect(); } catch {}
+    try { this.fxDryGainA?.disconnect(); } catch {}
+    try { this.fxWetGainA?.disconnect(); } catch {}
+    try { this.djFilterA?.disconnect(); } catch {}
+    try { this.echoDryGainA?.disconnect(); } catch {}
+    try { this.echoDelayA?.disconnect(); } catch {}
+    try { this.echoMixGainA?.disconnect(); } catch {}
+    try { this.echoFeedbackGainA?.disconnect(); } catch {}
+    try { this.deckGainA?.disconnect(); } catch {}
+    
+    // Source -> EQ (or bypass) -> preFX
+    if (this.state.isBypassed) {
+      this.sourceNodeA.connect(this.fxDryGainA!);
+      this.sourceNodeA.connect(this.djFilterA!);
+    } else {
+      this.sourceNodeA.connect(this.filtersA[0]);
+      lastFilter.connect(this.fxDryGainA!);
+      lastFilter.connect(this.djFilterA!);
+    }
+    
+    // FX chain
+    this.djFilterA!.connect(this.echoDryGainA!);
+    this.djFilterA!.connect(this.echoDelayA!);
+    this.echoDelayA!.connect(this.echoMixGainA!);
+    this.echoDelayA!.connect(this.echoFeedbackGainA!);
+    this.echoFeedbackGainA!.connect(this.echoDelayA!);
+    this.echoDryGainA!.connect(this.fxWetGainA!);
+    this.echoMixGainA!.connect(this.fxWetGainA!);
+    
+    // Dry + Wet -> Deck gain
+    this.fxDryGainA!.connect(this.deckGainA!);
+    this.fxWetGainA!.connect(this.deckGainA!);
+    
+    // Deck gain -> crossfade
+    this.deckGainA!.connect(this.crossfadeGainA!);
+  }
+
+  buildDeckBGraph() {
+    if (!this.audioElementB || !this.audioContext) return;
+    if (this.graphBuiltB) return;
+    
+    console.log('[AudioEngine] Building Deck B graph...');
+    const ctx = this.audioContext;
+    
+    // Ensure master chain exists
+    if (!this.masterSum) {
+      this.buildMasterChain();
+    }
+    
+    // Source
+    this.sourceNodeB = ctx.createMediaElementSource(this.audioElementB);
+    
+    // FX bypass dry/wet
+    this.fxDryGainB = ctx.createGain();
+    this.fxWetGainB = ctx.createGain();
+    this.fxDryGainB.gain.value = this.state.deckB.djBypass ? 1 : 0;
+    this.fxWetGainB.gain.value = this.state.deckB.djBypass ? 0 : 1;
+    
+    // DJ Filter
+    this.djFilterB = ctx.createBiquadFilter();
+    this.djFilterB.type = 'lowpass';
+    this.djFilterB.frequency.value = 20000;
+    this.djFilterB.Q.value = 0.7;
+    
+    // Echo
+    this.echoDelayB = ctx.createDelay(2.0);
+    this.echoDelayB.delayTime.value = this.state.deckB.echoTime;
+    this.echoFeedbackGainB = ctx.createGain();
+    this.echoFeedbackGainB.gain.value = this.state.deckB.echoFeedback;
+    this.echoMixGainB = ctx.createGain();
+    this.echoMixGainB.gain.value = this.state.deckB.echoMix;
+    this.echoDryGainB = ctx.createGain();
+    this.echoDryGainB.gain.value = 1;
+    
+    // Deck gain
+    this.deckGainB = ctx.createGain();
+    this.deckGainB.gain.value = 1;
+    
+    // Connect Deck B
+    this.connectDeckB();
+    
+    this.graphBuiltB = true;
+    this.notifyListeners();
+    console.log('[AudioEngine] Deck B graph built');
+  }
+
+  private connectDeckB() {
+    if (!this.sourceNodeB || !this.crossfadeGainB) return;
+    
+    // Disconnect
+    try { this.sourceNodeB.disconnect(); } catch {}
+    try { this.fxDryGainB?.disconnect(); } catch {}
+    try { this.fxWetGainB?.disconnect(); } catch {}
+    try { this.djFilterB?.disconnect(); } catch {}
+    try { this.echoDryGainB?.disconnect(); } catch {}
+    try { this.echoDelayB?.disconnect(); } catch {}
+    try { this.echoMixGainB?.disconnect(); } catch {}
+    try { this.echoFeedbackGainB?.disconnect(); } catch {}
+    try { this.deckGainB?.disconnect(); } catch {}
+    
+    // Source -> FX (no EQ on Deck B)
+    this.sourceNodeB.connect(this.fxDryGainB!);
+    this.sourceNodeB.connect(this.djFilterB!);
+    
+    // FX chain
+    this.djFilterB!.connect(this.echoDryGainB!);
+    this.djFilterB!.connect(this.echoDelayB!);
+    this.echoDelayB!.connect(this.echoMixGainB!);
+    this.echoDelayB!.connect(this.echoFeedbackGainB!);
+    this.echoFeedbackGainB!.connect(this.echoDelayB!);
+    this.echoDryGainB!.connect(this.fxWetGainB!);
+    this.echoMixGainB!.connect(this.fxWetGainB!);
+    
+    // Dry + Wet -> Deck gain
+    this.fxDryGainB!.connect(this.deckGainB!);
+    this.fxWetGainB!.connect(this.deckGainB!);
+    
+    // Deck gain -> crossfade
+    this.deckGainB!.connect(this.crossfadeGainB!);
+  }
+
+  private reconnectMasterChain() {
+    if (!this.masterSum || !this.masterGain || !this.audioContext) return;
+    
+    try { this.masterSum.disconnect(); } catch {}
     try { this.compressor?.disconnect(); } catch {}
     try { this.masterGain.disconnect(); } catch {}
     
-    // Source -> EQ (or bypass) -> preFX point
-    // preFX point is where we split into dry and wet paths
-    if (this.state.isBypassed) {
-      // EQ bypassed: source -> fxDryGain (dry path)
-      //              source -> fxChain -> fxWetGain (wet path)
-      this.sourceNode.connect(this.fxDryGain);
-      this.sourceNode.connect(this.djFilter);
-    } else {
-      // EQ active: source -> EQ -> fxDryGain (dry path)
-      //            source -> EQ -> fxChain -> fxWetGain (wet path)
-      this.sourceNode.connect(this.filters[0]);
-      lastFilter.connect(this.fxDryGain);
-      lastFilter.connect(this.djFilter);
-    }
-    
-    // Dry path: fxDryGain -> postFxGain (direct, no FX)
-    this.fxDryGain.connect(this.postFxGain);
-    
-    // Wet path: djFilter -> echo -> fxWetGain -> postFxGain
-    this.djFilter.connect(this.echoDryGain!);
-    this.djFilter.connect(this.echoDelay!);
-    
-    this.echoDelay!.connect(this.echoMixGain!);
-    this.echoDelay!.connect(this.echoFeedbackGain!);
-    this.echoFeedbackGain!.connect(this.echoDelay!);
-    
-    this.echoDryGain!.connect(this.fxWetGain);
-    this.echoMixGain!.connect(this.fxWetGain);
-    this.fxWetGain.connect(this.postFxGain);
-    
-    // postFxGain -> preCompressorGain
-    this.postFxGain.connect(this.preCompressorGain);
-    
-    // preCompressorGain -> Compressor (if Safe Mode) -> masterGain -> destination
     if (this.state.safeModeEnabled && this.compressor) {
-      this.preCompressorGain.connect(this.compressor);
+      this.masterSum.connect(this.compressor);
       this.compressor.connect(this.masterGain);
     } else {
-      this.preCompressorGain.connect(this.masterGain);
+      this.masterSum.connect(this.masterGain);
     }
     
-    // masterGain -> destination + recording tap
-    this.masterGain.connect(ctx.destination);
+    this.masterGain.connect(this.audioContext.destination);
     if (this.mediaStreamDest) {
       this.masterGain.connect(this.mediaStreamDest);
     }
   }
 
-  // Track loading
-  async loadFile(file: File): Promise<void> {
-    const url = URL.createObjectURL(file);
-    this.state.audioSrc = url;
-    this.state.fileName = file.name;
-    this.state.currentTime = 0;
-    this.state.isPlaying = false;
+  // Crossfader
+  private updateCrossfade() {
+    if (!this.crossfadeGainA || !this.crossfadeGainB) return;
     
-    if (this.audioElement) {
-      this.audioElement.src = url;
+    const x = this.state.crossfader;
+    // Equal power crossfade
+    const gainA = Math.cos(x * Math.PI / 2);
+    const gainB = Math.sin(x * Math.PI / 2);
+    
+    this.crossfadeGainA.gain.value = gainA;
+    this.crossfadeGainB.gain.value = gainB;
+  }
+
+  setCrossfader(value: number): void {
+    this.state.crossfader = Math.max(0, Math.min(1, value));
+    this.updateCrossfade();
+    this.notifyListeners();
+  }
+
+  nudgeCrossfader(delta: number): void {
+    this.setCrossfader(this.state.crossfader + delta);
+  }
+
+  // Active deck
+  setActiveDeck(deck: 'A' | 'B'): void {
+    this.state.activeDeck = deck;
+    this.notifyListeners();
+  }
+
+  toggleActiveDeck(): void {
+    this.setActiveDeck(this.state.activeDeck === 'A' ? 'B' : 'A');
+  }
+
+  // Track loading
+  async loadFileA(file: File): Promise<void> {
+    const url = URL.createObjectURL(file);
+    this.state.deckA.audioSrc = url;
+    this.state.deckA.fileName = file.name;
+    this.state.deckA.currentTime = 0;
+    this.state.deckA.isPlaying = false;
+    
+    if (this.audioElementA) {
+      this.audioElementA.src = url;
     }
     
     await this.ensureAudioContext();
+    if (!this.graphBuiltA) {
+      this.buildDeckAGraph();
+    }
     
-    setTimeout(() => {
-      if (!this.graphBuilt) {
-        this.buildAudioGraph();
-      }
-    }, 0);
-    
-    // Decode for export/waveform
+    // Decode for waveform
     try {
       const arrayBuffer = await file.arrayBuffer();
       const tempCtx = new AudioContext();
       const decoded = await tempCtx.decodeAudioData(arrayBuffer);
-      this.state.sourceBuffer = decoded;
+      this.state.deckA.sourceBuffer = decoded;
       await tempCtx.close();
     } catch (err) {
-      console.error('[AudioEngine] Failed to decode:', err);
-      this.state.sourceBuffer = null;
+      console.error('[AudioEngine] Failed to decode Deck A:', err);
+      this.state.deckA.sourceBuffer = null;
     }
     
     this.notifyListeners();
   }
 
-  loadUrl(url: string): void {
-    this.state.audioSrc = url;
-    this.state.fileName = url.split('/').pop() || 'URL Audio';
-    this.state.sourceBuffer = null;
-    this.state.currentTime = 0;
-    this.state.isPlaying = false;
+  loadUrlA(url: string): void {
+    this.state.deckA.audioSrc = url;
+    this.state.deckA.fileName = url.split('/').pop() || 'URL Audio';
+    this.state.deckA.sourceBuffer = null;
+    this.state.deckA.currentTime = 0;
+    this.state.deckA.isPlaying = false;
     
-    if (this.audioElement) {
-      this.audioElement.src = url;
+    if (this.audioElementA) {
+      this.audioElementA.src = url;
     }
     
     this.notifyListeners();
   }
 
-  // Playback controls
-  async play(): Promise<void> {
-    if (!this.audioElement || !this.state.audioSrc) return;
+  async loadFileB(file: File): Promise<void> {
+    const url = URL.createObjectURL(file);
+    this.state.deckB.audioSrc = url;
+    this.state.deckB.fileName = file.name;
+    this.state.deckB.currentTime = 0;
+    this.state.deckB.isPlaying = false;
+    
+    if (this.audioElementB) {
+      this.audioElementB.src = url;
+    }
     
     await this.ensureAudioContext();
-    if (!this.graphBuilt) {
-      this.buildAudioGraph();
+    if (!this.graphBuiltB) {
+      this.buildDeckBGraph();
     }
     
+    // Decode for waveform
     try {
-      await this.audioElement.play();
+      const arrayBuffer = await file.arrayBuffer();
+      const tempCtx = new AudioContext();
+      const decoded = await tempCtx.decodeAudioData(arrayBuffer);
+      this.state.deckB.sourceBuffer = decoded;
+      await tempCtx.close();
     } catch (err) {
-      console.error('[AudioEngine] Play failed:', err);
+      console.error('[AudioEngine] Failed to decode Deck B:', err);
+      this.state.deckB.sourceBuffer = null;
     }
+    
+    this.notifyListeners();
   }
 
-  pause(): void {
-    this.audioElement?.pause();
-  }
-
-  async togglePlay(): Promise<void> {
-    if (this.state.isPlaying) {
-      this.pause();
-    } else {
-      await this.play();
+  loadUrlB(url: string): void {
+    this.state.deckB.audioSrc = url;
+    this.state.deckB.fileName = url.split('/').pop() || 'URL Audio';
+    this.state.deckB.sourceBuffer = null;
+    this.state.deckB.currentTime = 0;
+    this.state.deckB.isPlaying = false;
+    
+    if (this.audioElementB) {
+      this.audioElementB.src = url;
     }
+    
+    this.notifyListeners();
   }
 
-  seek(time: number): void {
-    if (this.audioElement) {
-      const clamped = Math.max(0, Math.min(time, this.state.duration || 0));
-      this.audioElement.currentTime = clamped;
-      this.state.currentTime = clamped;
+  // Playback - Deck A
+  async playA(): Promise<void> {
+    if (!this.audioElementA || !this.state.deckA.audioSrc) return;
+    await this.ensureAudioContext();
+    if (!this.graphBuiltA) this.buildDeckAGraph();
+    try { await this.audioElementA.play(); } catch (err) { console.error('[AudioEngine] Play A failed:', err); }
+  }
+
+  pauseA(): void {
+    this.audioElementA?.pause();
+  }
+
+  async togglePlayA(): Promise<void> {
+    if (this.state.deckA.isPlaying) this.pauseA();
+    else await this.playA();
+  }
+
+  seekA(time: number): void {
+    if (this.audioElementA) {
+      const clamped = Math.max(0, Math.min(time, this.state.deckA.duration || 0));
+      this.audioElementA.currentTime = clamped;
+      this.state.deckA.currentTime = clamped;
       this.notifyListeners();
     }
   }
 
-  skipBackward(seconds = 5): void {
-    this.seek(this.state.currentTime - seconds);
+  skipBackwardA(seconds = 5): void {
+    this.seekA(this.state.deckA.currentTime - seconds);
   }
 
-  skipForward(seconds = 5): void {
-    this.seek(this.state.currentTime + seconds);
+  skipForwardA(seconds = 5): void {
+    this.seekA(this.state.deckA.currentTime + seconds);
+  }
+
+  // Playback - Deck B
+  async playB(): Promise<void> {
+    if (!this.audioElementB || !this.state.deckB.audioSrc) return;
+    await this.ensureAudioContext();
+    if (!this.graphBuiltB) this.buildDeckBGraph();
+    try { await this.audioElementB.play(); } catch (err) { console.error('[AudioEngine] Play B failed:', err); }
+  }
+
+  pauseB(): void {
+    this.audioElementB?.pause();
+  }
+
+  async togglePlayB(): Promise<void> {
+    if (this.state.deckB.isPlaying) this.pauseB();
+    else await this.playB();
+  }
+
+  seekB(time: number): void {
+    if (this.audioElementB) {
+      const clamped = Math.max(0, Math.min(time, this.state.deckB.duration || 0));
+      this.audioElementB.currentTime = clamped;
+      this.state.deckB.currentTime = clamped;
+      this.notifyListeners();
+    }
+  }
+
+  skipBackwardB(seconds = 5): void {
+    this.seekB(this.state.deckB.currentTime - seconds);
+  }
+
+  skipForwardB(seconds = 5): void {
+    this.seekB(this.state.deckB.currentTime + seconds);
+  }
+
+  // Convenience: active deck methods
+  async togglePlayActive(): Promise<void> {
+    if (this.state.activeDeck === 'A') await this.togglePlayA();
+    else await this.togglePlayB();
+  }
+
+  seekActive(time: number): void {
+    if (this.state.activeDeck === 'A') this.seekA(time);
+    else this.seekB(time);
+  }
+
+  skipBackwardActive(seconds = 5): void {
+    if (this.state.activeDeck === 'A') this.skipBackwardA(seconds);
+    else this.skipBackwardB(seconds);
+  }
+
+  skipForwardActive(seconds = 5): void {
+    if (this.state.activeDeck === 'A') this.skipForwardA(seconds);
+    else this.skipForwardB(seconds);
   }
 
   // Volume
@@ -549,18 +834,15 @@ export class AudioEngine {
     if (this.masterGain) {
       this.masterGain.gain.value = vol;
     }
-    if (this.audioElement) {
-      this.audioElement.volume = vol;
-    }
     this.notifyListeners();
   }
 
-  // EQ controls
+  // EQ controls (Deck A only)
   setBandGain(index: number, value: number): void {
     if (index >= 0 && index < this.state.gains.length) {
       this.state.gains[index] = value;
-      if (this.filters[index]) {
-        this.filters[index].gain.value = value;
+      if (this.filtersA[index]) {
+        this.filtersA[index].gain.value = value;
       }
       
       if (this.state.activeSlot === 'A') {
@@ -575,7 +857,7 @@ export class AudioEngine {
 
   setAllGains(gains: number[]): void {
     this.state.gains = [...gains];
-    this.filters.forEach((filter, i) => {
+    this.filtersA.forEach((filter, i) => {
       if (gains[i] !== undefined) {
         filter.gain.value = gains[i];
       }
@@ -592,7 +874,7 @@ export class AudioEngine {
 
   setEqBypass(bypass: boolean): void {
     this.state.isBypassed = bypass;
-    this.connectGraph();
+    this.connectDeckA();
     this.notifyListeners();
   }
 
@@ -609,189 +891,324 @@ export class AudioEngine {
     this.state.gains = newGains;
     this.state.activeSlot = slot;
     
-    this.filters.forEach((filter, i) => {
+    this.filtersA.forEach((filter, i) => {
       filter.gain.value = newGains[i];
     });
     
     this.notifyListeners();
   }
 
-  // DJ controls
-  setPlaybackRate(rate: number): void {
-    this.state.playbackRate = rate;
-    if (this.audioElement) {
-      this.audioElement.playbackRate = rate;
+  // DJ controls - Deck A
+  setPlaybackRateA(rate: number): void {
+    this.state.deckA.playbackRate = rate;
+    if (this.audioElementA) {
+      this.audioElementA.playbackRate = rate;
     }
     this.notifyListeners();
   }
 
-  setDjFilterValue(value: number): void {
-    this.state.djFilterValue = value;
-    
-    if (this.djFilter) {
-      if (value === 0) {
-        this.djFilter.type = 'lowpass';
-        this.djFilter.frequency.value = 20000;
-      } else if (value < 0) {
-        this.djFilter.type = 'lowpass';
-        const normalized = (value + 100) / 100;
-        const freq = 200 * Math.pow(100, normalized);
-        this.djFilter.frequency.value = Math.min(freq, 20000);
-      } else {
-        this.djFilter.type = 'highpass';
-        const normalized = value / 100;
-        const freq = 20 * Math.pow(400, normalized);
-        this.djFilter.frequency.value = Math.min(freq, 8000);
-      }
-    }
-    
-    this.notifyListeners();
-  }
-
-  setEchoMix(mix: number): void {
-    this.state.echoMix = mix;
-    if (this.echoMixGain) {
-      this.echoMixGain.gain.value = mix;
+  setDjFilterValueA(value: number): void {
+    this.state.deckA.djFilterValue = value;
+    if (this.djFilterA) {
+      this.applyFilterValue(this.djFilterA, value);
     }
     this.notifyListeners();
   }
 
-  setEchoTime(time: number): void {
-    this.state.echoTime = time;
-    if (this.echoDelay) {
-      this.echoDelay.delayTime.value = time;
+  setEchoMixA(mix: number): void {
+    this.state.deckA.echoMix = mix;
+    if (this.echoMixGainA) this.echoMixGainA.gain.value = mix;
+    this.notifyListeners();
+  }
+
+  setEchoTimeA(time: number): void {
+    this.state.deckA.echoTime = time;
+    if (this.echoDelayA) this.echoDelayA.delayTime.value = time;
+    this.notifyListeners();
+  }
+
+  setEchoFeedbackA(feedback: number): void {
+    this.state.deckA.echoFeedback = feedback;
+    if (this.echoFeedbackGainA) this.echoFeedbackGainA.gain.value = feedback;
+    this.notifyListeners();
+  }
+
+  setDjBypassA(bypass: boolean): void {
+    this.state.deckA.djBypass = bypass;
+    if (this.fxDryGainA && this.fxWetGainA) {
+      this.fxDryGainA.gain.value = bypass ? 1 : 0;
+      this.fxWetGainA.gain.value = bypass ? 0 : 1;
     }
     this.notifyListeners();
   }
 
-  setEchoFeedback(feedback: number): void {
-    this.state.echoFeedback = feedback;
-    if (this.echoFeedbackGain) {
-      this.echoFeedbackGain.gain.value = feedback;
+  // DJ controls - Deck B
+  setPlaybackRateB(rate: number): void {
+    this.state.deckB.playbackRate = rate;
+    if (this.audioElementB) {
+      this.audioElementB.playbackRate = rate;
     }
     this.notifyListeners();
   }
 
-  setDjBypass(bypass: boolean): void {
-    this.state.djBypass = bypass;
-    
-    // Use gain nodes for true bypass - no need to reconnect graph
-    if (this.fxDryGain && this.fxWetGain) {
-      if (bypass) {
-        // Bypass ON: dry=1, wet=0 (only dry signal passes through)
-        this.fxDryGain.gain.value = 1;
-        this.fxWetGain.gain.value = 0;
-      } else {
-        // Bypass OFF: dry=0, wet=1 (only wet/FX signal passes through)
-        this.fxDryGain.gain.value = 0;
-        this.fxWetGain.gain.value = 1;
-      }
+  setDjFilterValueB(value: number): void {
+    this.state.deckB.djFilterValue = value;
+    if (this.djFilterB) {
+      this.applyFilterValue(this.djFilterB, value);
     }
-    
     this.notifyListeners();
   }
 
-  // Hot cues
-  setHotCue(index: number): void {
+  setEchoMixB(mix: number): void {
+    this.state.deckB.echoMix = mix;
+    if (this.echoMixGainB) this.echoMixGainB.gain.value = mix;
+    this.notifyListeners();
+  }
+
+  setEchoTimeB(time: number): void {
+    this.state.deckB.echoTime = time;
+    if (this.echoDelayB) this.echoDelayB.delayTime.value = time;
+    this.notifyListeners();
+  }
+
+  setEchoFeedbackB(feedback: number): void {
+    this.state.deckB.echoFeedback = feedback;
+    if (this.echoFeedbackGainB) this.echoFeedbackGainB.gain.value = feedback;
+    this.notifyListeners();
+  }
+
+  setDjBypassB(bypass: boolean): void {
+    this.state.deckB.djBypass = bypass;
+    if (this.fxDryGainB && this.fxWetGainB) {
+      this.fxDryGainB.gain.value = bypass ? 1 : 0;
+      this.fxWetGainB.gain.value = bypass ? 0 : 1;
+    }
+    this.notifyListeners();
+  }
+
+  private applyFilterValue(filter: BiquadFilterNode, value: number) {
+    if (value === 0) {
+      filter.type = 'lowpass';
+      filter.frequency.value = 20000;
+    } else if (value < 0) {
+      filter.type = 'lowpass';
+      const normalized = (value + 100) / 100;
+      const freq = 200 * Math.pow(100, normalized);
+      filter.frequency.value = Math.min(freq, 20000);
+    } else {
+      filter.type = 'highpass';
+      const normalized = value / 100;
+      const freq = 20 * Math.pow(400, normalized);
+      filter.frequency.value = Math.min(freq, 8000);
+    }
+  }
+
+  // Hot cues - per deck
+  setHotCueA(index: number): void {
     if (index >= 0 && index < 4) {
-      this.state.hotCues[index] = {
-        time: this.state.currentTime,
+      this.state.deckA.hotCues[index] = {
+        time: this.state.deckA.currentTime,
         label: `Cue ${index + 1}`,
       };
       this.notifyListeners();
     }
   }
 
-  triggerHotCue(index: number): void {
-    const cue = this.state.hotCues[index];
-    if (cue) {
-      this.seek(cue.time);
-    }
+  triggerHotCueA(index: number): void {
+    const cue = this.state.deckA.hotCues[index];
+    if (cue) this.seekA(cue.time);
   }
 
-  clearHotCue(index: number): void {
+  clearHotCueA(index: number): void {
     if (index >= 0 && index < 4) {
-      this.state.hotCues[index] = null;
+      this.state.deckA.hotCues[index] = null;
       this.notifyListeners();
     }
   }
 
-  // Loop - with validation
-  private normalizeLoopMarkers(): void {
-    const duration = this.state.duration || 0;
-    
-    // Clamp both to [0, duration]
-    if (this.state.loopIn !== null) {
-      this.state.loopIn = Math.max(0, Math.min(this.state.loopIn, duration));
+  setHotCueB(index: number): void {
+    if (index >= 0 && index < 4) {
+      this.state.deckB.hotCues[index] = {
+        time: this.state.deckB.currentTime,
+        label: `Cue ${index + 1}`,
+      };
+      this.notifyListeners();
     }
-    if (this.state.loopOut !== null) {
-      this.state.loopOut = Math.max(0, Math.min(this.state.loopOut, duration));
+  }
+
+  triggerHotCueB(index: number): void {
+    const cue = this.state.deckB.hotCues[index];
+    if (cue) this.seekB(cue.time);
+  }
+
+  clearHotCueB(index: number): void {
+    if (index >= 0 && index < 4) {
+      this.state.deckB.hotCues[index] = null;
+      this.notifyListeners();
     }
-    
-    // Enforce loopOut >= loopIn + minGap
-    if (this.state.loopIn !== null && this.state.loopOut !== null) {
-      if (this.state.loopOut < this.state.loopIn + LOOP_MIN_GAP) {
-        // Move loopOut forward to maintain minimum gap
-        this.state.loopOut = Math.min(this.state.loopIn + LOOP_MIN_GAP, duration);
-        
-        // If still not valid (at end of track), adjust loopIn backwards
-        if (this.state.loopOut < this.state.loopIn + LOOP_MIN_GAP) {
-          this.state.loopIn = Math.max(0, this.state.loopOut - LOOP_MIN_GAP);
-        }
+  }
+
+  // Active deck hot cues
+  setHotCueActive(index: number): void {
+    if (this.state.activeDeck === 'A') this.setHotCueA(index);
+    else this.setHotCueB(index);
+  }
+
+  triggerHotCueActive(index: number): void {
+    if (this.state.activeDeck === 'A') this.triggerHotCueA(index);
+    else this.triggerHotCueB(index);
+  }
+
+  getHotCueActive(index: number): HotCue | null {
+    if (this.state.activeDeck === 'A') return this.state.deckA.hotCues[index];
+    return this.state.deckB.hotCues[index];
+  }
+
+  // Loop - per deck
+  private normalizeLoopMarkersA(): void {
+    const duration = this.state.deckA.duration || 0;
+    if (this.state.deckA.loopIn !== null) {
+      this.state.deckA.loopIn = Math.max(0, Math.min(this.state.deckA.loopIn, duration));
+    }
+    if (this.state.deckA.loopOut !== null) {
+      this.state.deckA.loopOut = Math.max(0, Math.min(this.state.deckA.loopOut, duration));
+    }
+    if (this.state.deckA.loopIn !== null && this.state.deckA.loopOut !== null) {
+      if (this.state.deckA.loopOut < this.state.deckA.loopIn + LOOP_MIN_GAP) {
+        this.state.deckA.loopOut = Math.min(this.state.deckA.loopIn + LOOP_MIN_GAP, duration);
       }
     }
   }
 
-  setLoopIn(): void {
-    const duration = this.state.duration || 0;
-    let newLoopIn = Math.max(0, Math.min(this.state.currentTime, duration));
-    
-    // If loopOut exists and newLoopIn would violate constraint, adjust loopOut
-    if (this.state.loopOut !== null && newLoopIn >= this.state.loopOut - LOOP_MIN_GAP) {
-      // Move loopOut forward
-      this.state.loopOut = Math.min(newLoopIn + LOOP_MIN_GAP, duration);
+  setLoopInA(): void {
+    this.state.deckA.loopIn = this.state.deckA.currentTime;
+    if (this.state.deckA.loopOut !== null && this.state.deckA.loopIn >= this.state.deckA.loopOut - LOOP_MIN_GAP) {
+      this.state.deckA.loopOut = Math.min(this.state.deckA.loopIn + LOOP_MIN_GAP, this.state.deckA.duration);
     }
-    
-    this.state.loopIn = newLoopIn;
-    this.normalizeLoopMarkers();
+    this.normalizeLoopMarkersA();
     this.notifyListeners();
   }
 
-  setLoopOut(): void {
-    const duration = this.state.duration || 0;
-    let newLoopOut = Math.max(0, Math.min(this.state.currentTime, duration));
-    
-    // If loopIn exists and newLoopOut would violate constraint, it must be >= loopIn + minGap
-    if (this.state.loopIn !== null && newLoopOut < this.state.loopIn + LOOP_MIN_GAP) {
-      // Set loopOut to minimum valid value
-      newLoopOut = Math.min(this.state.loopIn + LOOP_MIN_GAP, duration);
+  setLoopOutA(): void {
+    let newOut = this.state.deckA.currentTime;
+    if (this.state.deckA.loopIn !== null && newOut < this.state.deckA.loopIn + LOOP_MIN_GAP) {
+      newOut = Math.min(this.state.deckA.loopIn + LOOP_MIN_GAP, this.state.deckA.duration);
     }
-    
-    this.state.loopOut = newLoopOut;
-    this.normalizeLoopMarkers();
+    this.state.deckA.loopOut = newOut;
+    this.normalizeLoopMarkersA();
     this.notifyListeners();
   }
 
-  toggleLoop(): void {
-    // Only enable loop if both markers are set and valid
-    if (this.state.loopIn !== null && this.state.loopOut !== null) {
-      this.normalizeLoopMarkers();
-      this.state.loopEnabled = !this.state.loopEnabled;
+  toggleLoopA(): void {
+    if (this.state.deckA.loopIn !== null && this.state.deckA.loopOut !== null) {
+      this.state.deckA.loopEnabled = !this.state.deckA.loopEnabled;
     }
     this.notifyListeners();
   }
 
-  clearLoop(): void {
-    this.state.loopIn = null;
-    this.state.loopOut = null;
-    this.state.loopEnabled = false;
+  clearLoopA(): void {
+    this.state.deckA.loopIn = null;
+    this.state.deckA.loopOut = null;
+    this.state.deckA.loopEnabled = false;
+    this.notifyListeners();
+  }
+
+  private normalizeLoopMarkersB(): void {
+    const duration = this.state.deckB.duration || 0;
+    if (this.state.deckB.loopIn !== null) {
+      this.state.deckB.loopIn = Math.max(0, Math.min(this.state.deckB.loopIn, duration));
+    }
+    if (this.state.deckB.loopOut !== null) {
+      this.state.deckB.loopOut = Math.max(0, Math.min(this.state.deckB.loopOut, duration));
+    }
+    if (this.state.deckB.loopIn !== null && this.state.deckB.loopOut !== null) {
+      if (this.state.deckB.loopOut < this.state.deckB.loopIn + LOOP_MIN_GAP) {
+        this.state.deckB.loopOut = Math.min(this.state.deckB.loopIn + LOOP_MIN_GAP, duration);
+      }
+    }
+  }
+
+  setLoopInB(): void {
+    this.state.deckB.loopIn = this.state.deckB.currentTime;
+    if (this.state.deckB.loopOut !== null && this.state.deckB.loopIn >= this.state.deckB.loopOut - LOOP_MIN_GAP) {
+      this.state.deckB.loopOut = Math.min(this.state.deckB.loopIn + LOOP_MIN_GAP, this.state.deckB.duration);
+    }
+    this.normalizeLoopMarkersB();
+    this.notifyListeners();
+  }
+
+  setLoopOutB(): void {
+    let newOut = this.state.deckB.currentTime;
+    if (this.state.deckB.loopIn !== null && newOut < this.state.deckB.loopIn + LOOP_MIN_GAP) {
+      newOut = Math.min(this.state.deckB.loopIn + LOOP_MIN_GAP, this.state.deckB.duration);
+    }
+    this.state.deckB.loopOut = newOut;
+    this.normalizeLoopMarkersB();
+    this.notifyListeners();
+  }
+
+  toggleLoopB(): void {
+    if (this.state.deckB.loopIn !== null && this.state.deckB.loopOut !== null) {
+      this.state.deckB.loopEnabled = !this.state.deckB.loopEnabled;
+    }
+    this.notifyListeners();
+  }
+
+  clearLoopB(): void {
+    this.state.deckB.loopIn = null;
+    this.state.deckB.loopOut = null;
+    this.state.deckB.loopEnabled = false;
+    this.notifyListeners();
+  }
+
+  // Active deck loop
+  setLoopInActive(): void {
+    if (this.state.activeDeck === 'A') this.setLoopInA();
+    else this.setLoopInB();
+  }
+
+  setLoopOutActive(): void {
+    if (this.state.activeDeck === 'A') this.setLoopOutA();
+    else this.setLoopOutB();
+  }
+
+  toggleLoopActive(): void {
+    if (this.state.activeDeck === 'A') this.toggleLoopA();
+    else this.toggleLoopB();
+  }
+
+  clearLoopActive(): void {
+    if (this.state.activeDeck === 'A') this.clearLoopA();
+    else this.clearLoopB();
+  }
+
+  moveLoopWindowActive(offset: number): void {
+    const deck = this.state.activeDeck === 'A' ? this.state.deckA : this.state.deckB;
+    if (deck.loopIn === null || deck.loopOut === null) return;
+    
+    const duration = deck.duration || 0;
+    const loopLength = deck.loopOut - deck.loopIn;
+    
+    let newIn = deck.loopIn + offset;
+    let newOut = deck.loopOut + offset;
+    
+    if (newIn < 0) { newIn = 0; newOut = loopLength; }
+    if (newOut > duration) { newOut = duration; newIn = Math.max(0, duration - loopLength); }
+    
+    if (this.state.activeDeck === 'A') {
+      this.state.deckA.loopIn = newIn;
+      this.state.deckA.loopOut = newOut;
+    } else {
+      this.state.deckB.loopIn = newIn;
+      this.state.deckB.loopOut = newOut;
+    }
     this.notifyListeners();
   }
 
   // Safe Mode
   setSafeMode(enabled: boolean): void {
     this.state.safeModeEnabled = enabled;
-    this.connectGraph();
+    this.reconnectMasterChain();
     this.notifyListeners();
   }
 
@@ -799,23 +1216,32 @@ export class AudioEngine {
     this.setSafeMode(!this.state.safeModeEnabled);
   }
 
-  // DJ Scenes
+  // DJ Scenes (applied to active deck)
   getCurrentDjParams(): DJSceneParams {
+    const deck = this.state.activeDeck === 'A' ? this.state.deckA : this.state.deckB;
     return {
-      playbackRate: this.state.playbackRate,
-      djFilterValue: this.state.djFilterValue,
-      echoMix: this.state.echoMix,
-      echoTime: this.state.echoTime,
-      echoFeedback: this.state.echoFeedback,
+      playbackRate: deck.playbackRate,
+      djFilterValue: deck.djFilterValue,
+      echoMix: deck.echoMix,
+      echoTime: deck.echoTime,
+      echoFeedback: deck.echoFeedback,
     };
   }
 
-  applyDjParams(params: DJSceneParams): void {
-    this.setPlaybackRate(params.playbackRate);
-    this.setDjFilterValue(params.djFilterValue);
-    this.setEchoMix(params.echoMix);
-    this.setEchoTime(params.echoTime);
-    this.setEchoFeedback(params.echoFeedback);
+  applyDjParamsToActive(params: DJSceneParams): void {
+    if (this.state.activeDeck === 'A') {
+      this.setPlaybackRateA(params.playbackRate);
+      this.setDjFilterValueA(params.djFilterValue);
+      this.setEchoMixA(params.echoMix);
+      this.setEchoTimeA(params.echoTime);
+      this.setEchoFeedbackA(params.echoFeedback);
+    } else {
+      this.setPlaybackRateB(params.playbackRate);
+      this.setDjFilterValueB(params.djFilterValue);
+      this.setEchoMixB(params.echoMix);
+      this.setEchoTimeB(params.echoTime);
+      this.setEchoFeedbackB(params.echoFeedback);
+    }
   }
 
   storeDjSceneA(): void {
@@ -829,29 +1255,25 @@ export class AudioEngine {
   }
 
   loadDjSceneA(): void {
-    this.applyDjParams(this.state.djSceneA);
+    this.applyDjParamsToActive(this.state.djSceneA);
     this.state.activeDjScene = 'A';
     this.notifyListeners();
   }
 
   loadDjSceneB(): void {
-    this.applyDjParams(this.state.djSceneB);
+    this.applyDjParamsToActive(this.state.djSceneB);
     this.state.activeDjScene = 'B';
     this.notifyListeners();
   }
 
   applyBuiltInDjScene(name: string): void {
     const scene = BUILT_IN_DJ_SCENES[name];
-    if (scene) {
-      this.applyDjParams(scene);
-    }
+    if (scene) this.applyDjParamsToActive(scene);
   }
 
-  // Morph between scenes
   morphToScene(target: 'A' | 'B', durationMs = 600): void {
     if (this.morphAnimationId) {
       cancelAnimationFrame(this.morphAnimationId);
-      this.morphAnimationId = null;
     }
 
     const startParams = this.getCurrentDjParams();
@@ -865,9 +1287,8 @@ export class AudioEngine {
     const animate = () => {
       const elapsed = performance.now() - startTime;
       const progress = Math.min(elapsed / durationMs, 1);
-      const eased = 1 - Math.pow(1 - progress, 3); // Ease out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
 
-      // Interpolate all params
       const interpolated: DJSceneParams = {
         playbackRate: startParams.playbackRate + (endParams.playbackRate - startParams.playbackRate) * eased,
         djFilterValue: startParams.djFilterValue + (endParams.djFilterValue - startParams.djFilterValue) * eased,
@@ -876,7 +1297,7 @@ export class AudioEngine {
         echoFeedback: startParams.echoFeedback + (endParams.echoFeedback - startParams.echoFeedback) * eased,
       };
 
-      this.applyDjParams(interpolated);
+      this.applyDjParamsToActive(interpolated);
       this.state.morphProgress = progress;
 
       if (progress < 1) {
@@ -901,37 +1322,12 @@ export class AudioEngine {
     }
   }
 
-  // Panic / Kill FX - reset all DJ effects to neutral
   panicFx(): void {
     this.cancelMorph();
-    this.setDjFilterValue(0);
-    this.setEchoMix(0);
-  }
-
-  // Move loop window by offset
-  moveLoopWindow(offsetSeconds: number): void {
-    if (this.state.loopIn === null || this.state.loopOut === null) return;
-    
-    const duration = this.state.duration || 0;
-    const loopLength = this.state.loopOut - this.state.loopIn;
-    
-    let newIn = this.state.loopIn + offsetSeconds;
-    let newOut = this.state.loopOut + offsetSeconds;
-    
-    // Clamp to track bounds
-    if (newIn < 0) {
-      newIn = 0;
-      newOut = loopLength;
-    }
-    if (newOut > duration) {
-      newOut = duration;
-      newIn = Math.max(0, duration - loopLength);
-    }
-    
-    this.state.loopIn = newIn;
-    this.state.loopOut = newOut;
-    this.normalizeLoopMarkers();
-    this.notifyListeners();
+    this.setDjFilterValueA(0);
+    this.setEchoMixA(0);
+    this.setDjFilterValueB(0);
+    this.setEchoMixB(0);
   }
 
   // Recording
@@ -945,9 +1341,7 @@ export class AudioEngine {
       });
 
       this.mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          this.recordedChunks.push(e.data);
-        }
+        if (e.data.size > 0) this.recordedChunks.push(e.data);
       };
 
       this.mediaRecorder.onstop = () => {
@@ -965,7 +1359,6 @@ export class AudioEngine {
       this.notifyListeners();
     } catch (err) {
       console.error('[AudioEngine] Recording not supported:', err);
-      alert('Recording is not supported in this browser.');
     }
   }
 
@@ -977,11 +1370,8 @@ export class AudioEngine {
   }
 
   toggleRecording(): void {
-    if (this.state.isRecording) {
-      this.stopRecording();
-    } else {
-      this.startRecording();
-    }
+    if (this.state.isRecording) this.stopRecording();
+    else this.startRecording();
   }
 
   downloadRecording(): void {
@@ -1003,17 +1393,11 @@ export class AudioEngine {
     this.notifyListeners();
   }
 
-  // Cleanup
   destroy(): void {
-    if (this.animationFrameId) {
-      cancelAnimationFrame(this.animationFrameId);
-    }
-    if (this.morphAnimationId) {
-      cancelAnimationFrame(this.morphAnimationId);
-    }
+    if (this.animationFrameId) cancelAnimationFrame(this.animationFrameId);
+    if (this.morphAnimationId) cancelAnimationFrame(this.morphAnimationId);
     this.audioContext?.close();
   }
 }
 
-// Singleton instance
 export const audioEngine = new AudioEngine();

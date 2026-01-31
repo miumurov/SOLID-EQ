@@ -1,6 +1,7 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import { useAudioEngine } from '../context/AudioEngineContext';
-import { WAVEFORM_SAMPLES, BUILT_IN_DJ_SCENES } from '../audio/AudioEngine';
+import { WAVEFORM_SAMPLES, DeckState } from '../audio/AudioEngine';
+import { TrackLoader } from '../components/TrackLoader';
 
 function computeWaveformPeaks(buffer: AudioBuffer, numSamples: number): number[] {
   const channelData = buffer.getChannelData(0);
@@ -11,15 +12,12 @@ function computeWaveformPeaks(buffer: AudioBuffer, numSamples: number): number[]
     const start = i * samplesPerPeak;
     const end = Math.min(start + samplesPerPeak, channelData.length);
     let max = 0;
-    
     for (let j = start; j < end; j++) {
       const abs = Math.abs(channelData[j]);
       if (abs > max) max = abs;
     }
-    
     peaks.push(max);
   }
-  
   return peaks;
 }
 
@@ -30,40 +28,49 @@ function formatTime(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-export function DJPage() {
-  const {
-    state,
-    loadFile,
-    togglePlay,
-    seek,
-    setPlaybackRate,
-    setDjFilterValue,
-    setEchoMix,
-    setEchoTime,
-    setEchoFeedback,
-    setDjBypass,
-    setHotCue,
-    triggerHotCue,
-    clearHotCue,
-    setLoopIn,
-    setLoopOut,
-    toggleLoop,
-    clearLoop,
-    storeDjSceneA,
-    storeDjSceneB,
-    loadDjSceneA,
-    loadDjSceneB,
-    morphToScene,
-    cancelMorph,
-    applyBuiltInDjScene,
-    toggleRecording,
-    downloadRecording,
-    clearRecording,
-  } = useAudioEngine();
+interface DeckPanelProps {
+  deckId: 'A' | 'B';
+  deck: DeckState;
+  isActive: boolean;
+  onTogglePlay: () => void;
+  onSeek: (time: number) => void;
+  onLoadFile: (file: File) => void;
+  onLoadUrl: (url: string) => void;
+  onSetPlaybackRate: (rate: number) => void;
+  onSetDjFilterValue: (value: number) => void;
+  onSetEchoMix: (mix: number) => void;
+  onSetDjBypass: (bypass: boolean) => void;
+  onSetHotCue: (index: number) => void;
+  onTriggerHotCue: (index: number) => void;
+  onClearHotCue: (index: number) => void;
+  onSetLoopIn: () => void;
+  onSetLoopOut: () => void;
+  onToggleLoop: () => void;
+  onClearLoop: () => void;
+  onSetActive: () => void;
+}
 
-  const [isDraggingOver, setIsDraggingOver] = useState(false);
-  const [selectedDjPreset, setSelectedDjPreset] = useState('');
-  
+function DeckPanel({
+  deckId,
+  deck,
+  isActive,
+  onTogglePlay,
+  onSeek,
+  onLoadFile,
+  onLoadUrl,
+  onSetPlaybackRate,
+  onSetDjFilterValue,
+  onSetEchoMix,
+  onSetDjBypass,
+  onSetHotCue,
+  onTriggerHotCue,
+  onClearHotCue,
+  onSetLoopIn,
+  onSetLoopOut,
+  onToggleLoop,
+  onClearLoop,
+  onSetActive,
+}: DeckPanelProps) {
   const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
   const waveformPeaksRef = useRef<number[]>([]);
   const playheadRafRef = useRef<number>(0);
@@ -71,15 +78,15 @@ export function DJPage() {
 
   // Compute waveform peaks
   useEffect(() => {
-    if (state.sourceBuffer) {
-      const peaks = computeWaveformPeaks(state.sourceBuffer, WAVEFORM_SAMPLES);
+    if (deck.sourceBuffer) {
+      const peaks = computeWaveformPeaks(deck.sourceBuffer, WAVEFORM_SAMPLES);
       waveformPeaksRef.current = peaks;
       drawWaveform();
     } else {
       waveformPeaksRef.current = [];
       drawWaveform();
     }
-  }, [state.sourceBuffer]);
+  }, [deck.sourceBuffer]);
 
   const drawWaveform = useCallback(() => {
     const canvas = waveformCanvasRef.current;
@@ -104,52 +111,52 @@ export function DJPage() {
     if (peaks.length === 0) {
       ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
       ctx.textAlign = 'center';
-      ctx.font = '13px -apple-system, BlinkMacSystemFont, sans-serif';
-      ctx.fillText('Load a track to begin', width / 2, height / 2);
+      ctx.font = '12px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.fillText('Load a track', width / 2, height / 2);
       return;
     }
     
     const centerY = height / 2;
     const barWidth = width / peaks.length;
     
-    // Draw loop region if set
-    if (state.loopIn !== null && state.loopOut !== null && state.duration > 0) {
-      const loopStartX = (state.loopIn / state.duration) * width;
-      const loopEndX = (state.loopOut / state.duration) * width;
-      ctx.fillStyle = state.loopEnabled ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255, 255, 255, 0.05)';
+    // Draw loop region
+    if (deck.loopIn !== null && deck.loopOut !== null && deck.duration > 0) {
+      const loopStartX = (deck.loopIn / deck.duration) * width;
+      const loopEndX = (deck.loopOut / deck.duration) * width;
+      ctx.fillStyle = deck.loopEnabled ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255, 255, 255, 0.05)';
       ctx.fillRect(loopStartX, 0, loopEndX - loopStartX, height);
     }
     
     // Draw hot cue markers
-    state.hotCues.forEach((cue, index) => {
-      if (cue && state.duration > 0) {
-        const cueX = (cue.time / state.duration) * width;
+    deck.hotCues.forEach((cue, index) => {
+      if (cue && deck.duration > 0) {
+        const cueX = (cue.time / deck.duration) * width;
         const colors = ['#f43f5e', '#eab308', '#22c55e', '#3b82f6'];
         ctx.fillStyle = colors[index];
-        ctx.fillRect(cueX - 1, 0, 3, height);
+        ctx.fillRect(cueX - 1, 0, 2, height);
       }
     });
     
+    // Draw waveform
     ctx.beginPath();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.strokeStyle = deckId === 'A' ? 'rgba(96, 165, 250, 0.4)' : 'rgba(248, 113, 113, 0.4)';
     ctx.lineWidth = 1;
     
     for (let i = 0; i < peaks.length; i++) {
       const x = i * barWidth + barWidth / 2;
-      const amplitude = peaks[i] * (height * 0.45);
+      const amplitude = peaks[i] * (height * 0.4);
       ctx.moveTo(x, centerY - amplitude);
       ctx.lineTo(x, centerY + amplitude);
     }
-    
     ctx.stroke();
     
     ctx.beginPath();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
     ctx.lineWidth = 1;
     ctx.moveTo(0, centerY);
     ctx.lineTo(width, centerY);
     ctx.stroke();
-  }, [state.hotCues, state.loopIn, state.loopOut, state.loopEnabled, state.duration]);
+  }, [deck.hotCues, deck.loopIn, deck.loopOut, deck.loopEnabled, deck.duration, deckId]);
 
   // Resize handler
   useEffect(() => {
@@ -165,7 +172,7 @@ export function DJPage() {
       if (!isPlayheadAnimatingRef.current) return;
       
       const canvas = waveformCanvasRef.current;
-      if (canvas && state.duration > 0) {
+      if (canvas && deck.duration > 0) {
         const ctx = canvas.getContext('2d');
         if (ctx) {
           const rect = canvas.getBoundingClientRect();
@@ -174,7 +181,7 @@ export function DJPage() {
           
           drawWaveform();
           
-          const progress = state.currentTime / state.duration;
+          const progress = deck.currentTime / deck.duration;
           const playheadX = progress * width;
           
           ctx.beginPath();
@@ -189,23 +196,21 @@ export function DJPage() {
       playheadRafRef.current = requestAnimationFrame(updatePlayhead);
     };
     
-    if (state.isPlaying && state.duration > 0) {
+    if (deck.isPlaying && deck.duration > 0) {
       isPlayheadAnimatingRef.current = true;
       playheadRafRef.current = requestAnimationFrame(updatePlayhead);
     } else {
       isPlayheadAnimatingRef.current = false;
-      if (playheadRafRef.current) {
-        cancelAnimationFrame(playheadRafRef.current);
-      }
+      if (playheadRafRef.current) cancelAnimationFrame(playheadRafRef.current);
       
-      if (state.duration > 0) {
+      if (deck.duration > 0) {
         drawWaveform();
         const canvas = waveformCanvasRef.current;
         if (canvas) {
           const ctx = canvas.getContext('2d');
           if (ctx) {
             const rect = canvas.getBoundingClientRect();
-            const progress = state.currentTime / state.duration;
+            const progress = deck.currentTime / deck.duration;
             const playheadX = progress * rect.width;
             
             ctx.beginPath();
@@ -221,43 +226,18 @@ export function DJPage() {
     
     return () => {
       isPlayheadAnimatingRef.current = false;
-      if (playheadRafRef.current) {
-        cancelAnimationFrame(playheadRafRef.current);
-      }
+      if (playheadRafRef.current) cancelAnimationFrame(playheadRafRef.current);
     };
-  }, [state.isPlaying, state.duration, state.currentTime, drawWaveform]);
+  }, [deck.isPlaying, deck.duration, deck.currentTime, drawWaveform]);
 
   const handleWaveformClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = waveformCanvasRef.current;
-    if (!canvas || !state.duration) return;
-    
+    if (!canvas || !deck.duration) return;
     const rect = canvas.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const progress = clickX / rect.width;
-    seek(progress * state.duration);
-  }, [state.duration, seek]);
-
-  const handleFileSelect = useCallback(async (file: File) => {
-    const validTypes = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4', 'audio/x-m4a', 'audio/aac'];
-    const validExtensions = ['.mp3', '.wav', '.ogg', '.m4a'];
-    
-    const isValidType = validTypes.includes(file.type);
-    const isValidExtension = validExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
-    
-    if (!isValidType && !isValidExtension) {
-      alert('Please select a valid audio file (mp3, wav, ogg, or m4a)');
-      return;
-    }
-
-    await loadFile(file);
-  }, [loadFile]);
-
-  const handleFileDrop = useCallback((e: React.DragEvent<HTMLElement>) => {
-    e.preventDefault();
-    setIsDraggingOver(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFileSelect(file);
-  }, [handleFileSelect]);
+    onSeek(progress * deck.duration);
+  }, [deck.duration, onSeek]);
 
   const getFilterLabel = (value: number): string => {
     if (value === 0) return 'OFF';
@@ -265,411 +245,317 @@ export function DJPage() {
     return `HP +${value}`;
   };
 
-  const handleApplyDjPreset = useCallback(() => {
-    if (selectedDjPreset && BUILT_IN_DJ_SCENES[selectedDjPreset]) {
-      applyBuiltInDjScene(selectedDjPreset);
-    }
-  }, [selectedDjPreset, applyBuiltInDjScene]);
+  const deckColor = deckId === 'A' ? '#60a5fa' : '#f87171';
 
   return (
-    <div className="page dj-page">
-      {/* Keyboard HUD */}
-      <div className="dj-hud">
-        <span className="hud-hint">
-          <kbd>1</kbd>–<kbd>4</kbd> cues · 
-          <kbd>Shift</kbd>+<kbd>1</kbd>–<kbd>4</kbd> set · 
-          <kbd>Space</kbd> play · 
-          <kbd>F</kbd> FX · 
-          <kbd>R</kbd> rec · 
-          <kbd>S</kbd> safe · 
-          <kbd>?</kbd> help
-        </span>
+    <section 
+      className={`card deck-panel ${isActive ? 'active' : ''}`}
+      onClick={onSetActive}
+      style={{ '--deck-color': deckColor } as React.CSSProperties}
+    >
+      <div className="deck-header">
+        <div className="deck-label">
+          <span className="deck-id">{deckId}</span>
+          {isActive && <span className="deck-active-badge">ACTIVE</span>}
+        </div>
+        <span className="deck-track-name">{deck.fileName || 'No track'}</span>
       </div>
 
-      {/* Deck Card */}
-      <section className="card deck-card">
-        <div className="card-header">
-          <h2 className="card-title">Deck</h2>
-          {state.fileName && (
-            <span className="deck-track-name">{state.fileName}</span>
-          )}
-        </div>
-        <div className="card-content">
-          {!state.audioSrc ? (
-            <label
-              className={`drop-zone ${isDraggingOver ? 'dragging' : ''}`}
-              onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
-              onDragLeave={() => setIsDraggingOver(false)}
-              onDrop={handleFileDrop}
-              htmlFor="file-input-dj"
-            >
-              <svg className="drop-zone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M9 8.25H7.5a2.25 2.25 0 00-2.25 2.25v9a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25H15M12 1.5v13.5m0 0l-3-3m3 3l3-3" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              <p className="drop-zone-text">Drop track here</p>
-              <input
-                type="file"
-                accept=".mp3,.wav,.ogg,.m4a,audio/*"
-                onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
-                id="file-input-dj"
-              />
-            </label>
-          ) : (
-            <div className="deck-display">
-              <div className="waveform-container waveform-large">
-                <canvas 
-                  ref={waveformCanvasRef}
-                  className="waveform-canvas"
-                  onClick={handleWaveformClick}
-                />
-              </div>
-              
-              <div className="deck-info-row">
-                <span className="deck-time">{formatTime(state.currentTime)}</span>
-                <span className="deck-bpm">{(state.playbackRate * 100).toFixed(0)}%</span>
-                <span className="deck-duration">{formatTime(state.duration)}</span>
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
+      {!deck.audioSrc ? (
+        <TrackLoader
+          trackName={deck.fileName}
+          onLoadFile={onLoadFile}
+          onLoadUrl={onLoadUrl}
+          label={`Load Track to Deck ${deckId}`}
+        />
+      ) : (
+        <>
+          <div className="deck-waveform">
+            <canvas
+              ref={waveformCanvasRef}
+              className="waveform-canvas"
+              onClick={handleWaveformClick}
+            />
+          </div>
 
-      {/* Transport Card */}
-      <section className="card transport-card">
-        <div className="card-header">
-          <h2 className="card-title">Transport</h2>
-          {state.isRecording && (
-            <span className="recording-badge">
-              ● REC {formatTime(state.recordingDuration)}
-            </span>
-          )}
-        </div>
-        <div className="card-content">
-          <div className="transport-main">
-            <button 
-              className="transport-play-btn" 
-              onClick={togglePlay}
-              disabled={!state.audioSrc}
-            >
-              {state.isPlaying ? (
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+          <div className="deck-transport">
+            <button className="deck-play-btn" onClick={onTogglePlay}>
+              {deck.isPlaying ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
                 </svg>
               ) : (
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M8 5v14l11-7z"/>
                 </svg>
               )}
             </button>
+            <div className="deck-time-display">
+              <span className="deck-time">{formatTime(deck.currentTime)}</span>
+              <span className="deck-time-sep">/</span>
+              <span className="deck-time">{formatTime(deck.duration)}</span>
+            </div>
+            <div className="deck-tempo">
+              <input
+                type="range"
+                className="tempo-slider-mini"
+                min={0.5}
+                max={1.5}
+                step={0.01}
+                value={deck.playbackRate}
+                onChange={(e) => onSetPlaybackRate(parseFloat(e.target.value))}
+              />
+              <span className="tempo-value-mini">{Math.round(deck.playbackRate * 100)}%</span>
+            </div>
           </div>
-          
-          <div className="transport-record">
+
+          <div className="deck-controls">
+            <div className="deck-fx">
+              <div className="fx-control">
+                <label>Filter</label>
+                <input
+                  type="range"
+                  min={-100}
+                  max={100}
+                  step={1}
+                  value={deck.djFilterValue}
+                  onChange={(e) => onSetDjFilterValue(parseInt(e.target.value))}
+                  disabled={deck.djBypass}
+                />
+                <span className="fx-value">{getFilterLabel(deck.djFilterValue)}</span>
+              </div>
+              <div className="fx-control">
+                <label>Echo</label>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={deck.echoMix}
+                  onChange={(e) => onSetEchoMix(parseFloat(e.target.value))}
+                  disabled={deck.djBypass}
+                />
+                <span className="fx-value">{Math.round(deck.echoMix * 100)}%</span>
+              </div>
+              <button
+                className={`fx-bypass-btn ${deck.djBypass ? 'active' : ''}`}
+                onClick={() => onSetDjBypass(!deck.djBypass)}
+              >
+                {deck.djBypass ? 'FX OFF' : 'FX'}
+              </button>
+            </div>
+
+            <div className="deck-hotcues">
+              {[0, 1, 2, 3].map((index) => {
+                const cue = deck.hotCues[index];
+                const colors = ['#f43f5e', '#eab308', '#22c55e', '#3b82f6'];
+                return (
+                  <button
+                    key={index}
+                    className={`hotcue-mini ${cue ? 'active' : ''}`}
+                    style={{ '--cue-color': colors[index] } as React.CSSProperties}
+                    onClick={() => cue ? onTriggerHotCue(index) : onSetHotCue(index)}
+                    onContextMenu={(e) => { e.preventDefault(); onClearHotCue(index); }}
+                    title={cue ? `Cue ${index+1}: ${formatTime(cue.time)}` : `Set Cue ${index+1}`}
+                  >
+                    {index + 1}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="deck-loop">
+              <button 
+                className={`loop-mini-btn ${deck.loopIn !== null ? 'set' : ''}`}
+                onClick={onSetLoopIn}
+              >
+                IN
+              </button>
+              <button 
+                className={`loop-mini-btn ${deck.loopOut !== null ? 'set' : ''}`}
+                onClick={onSetLoopOut}
+              >
+                OUT
+              </button>
+              <button 
+                className={`loop-mini-btn ${deck.loopEnabled ? 'active' : ''}`}
+                onClick={onToggleLoop}
+                disabled={deck.loopIn === null || deck.loopOut === null}
+              >
+                LOOP
+              </button>
+              <button className="loop-mini-btn" onClick={onClearLoop}>×</button>
+            </div>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+export function DJPage() {
+  const {
+    state,
+    setActiveDeck,
+    loadFileA,
+    loadUrlA,
+    togglePlayA,
+    seekA,
+    setPlaybackRateA,
+    setDjFilterValueA,
+    setEchoMixA,
+    setDjBypassA,
+    setHotCueA,
+    triggerHotCueA,
+    clearHotCueA,
+    setLoopInA,
+    setLoopOutA,
+    toggleLoopA,
+    clearLoopA,
+    loadFileB,
+    loadUrlB,
+    togglePlayB,
+    seekB,
+    setPlaybackRateB,
+    setDjFilterValueB,
+    setEchoMixB,
+    setDjBypassB,
+    setHotCueB,
+    triggerHotCueB,
+    clearHotCueB,
+    setLoopInB,
+    setLoopOutB,
+    toggleLoopB,
+    clearLoopB,
+    setCrossfader,
+    setVolume,
+    toggleRecording,
+    downloadRecording,
+    clearRecording,
+  } = useAudioEngine();
+
+  return (
+    <div className="page dj-page">
+      {/* HUD */}
+      <div className="dj-hud">
+        <span className="hud-hint">
+          <kbd>Tab</kbd> switch deck · 
+          <kbd>1</kbd>–<kbd>4</kbd> cues · 
+          <kbd>Z</kbd>/<kbd>/</kbd> crossfade · 
+          <kbd>?</kbd> help
+        </span>
+      </div>
+
+      {/* Decks Container */}
+      <div className="decks-container">
+        <DeckPanel
+          deckId="A"
+          deck={state.deckA}
+          isActive={state.activeDeck === 'A'}
+          onTogglePlay={togglePlayA}
+          onSeek={seekA}
+          onLoadFile={loadFileA}
+          onLoadUrl={loadUrlA}
+          onSetPlaybackRate={setPlaybackRateA}
+          onSetDjFilterValue={setDjFilterValueA}
+          onSetEchoMix={setEchoMixA}
+          onSetDjBypass={setDjBypassA}
+          onSetHotCue={setHotCueA}
+          onTriggerHotCue={triggerHotCueA}
+          onClearHotCue={clearHotCueA}
+          onSetLoopIn={setLoopInA}
+          onSetLoopOut={setLoopOutA}
+          onToggleLoop={toggleLoopA}
+          onClearLoop={clearLoopA}
+          onSetActive={() => setActiveDeck('A')}
+        />
+
+        <DeckPanel
+          deckId="B"
+          deck={state.deckB}
+          isActive={state.activeDeck === 'B'}
+          onTogglePlay={togglePlayB}
+          onSeek={seekB}
+          onLoadFile={loadFileB}
+          onLoadUrl={loadUrlB}
+          onSetPlaybackRate={setPlaybackRateB}
+          onSetDjFilterValue={setDjFilterValueB}
+          onSetEchoMix={setEchoMixB}
+          onSetDjBypass={setDjBypassB}
+          onSetHotCue={setHotCueB}
+          onTriggerHotCue={triggerHotCueB}
+          onClearHotCue={clearHotCueB}
+          onSetLoopIn={setLoopInB}
+          onSetLoopOut={setLoopOutB}
+          onToggleLoop={toggleLoopB}
+          onClearLoop={clearLoopB}
+          onSetActive={() => setActiveDeck('B')}
+        />
+      </div>
+
+      {/* Crossfader Section */}
+      <section className="card crossfader-card">
+        <div className="crossfader-header">
+          <span className="crossfader-label-a">A</span>
+          <h3 className="crossfader-title">CROSSFADER</h3>
+          <span className="crossfader-label-b">B</span>
+        </div>
+        <div className="crossfader-container">
+          <input
+            type="range"
+            className="crossfader-slider"
+            min={0}
+            max={1}
+            step={0.01}
+            value={state.crossfader}
+            onChange={(e) => setCrossfader(parseFloat(e.target.value))}
+          />
+        </div>
+        <div className="crossfader-values">
+          <span>{Math.round((1 - state.crossfader) * 100)}%</span>
+          <span>{Math.round(state.crossfader * 100)}%</span>
+        </div>
+      </section>
+
+      {/* Master Section */}
+      <section className="card master-card">
+        <div className="card-header">
+          <h3 className="card-title">Master</h3>
+          {state.isRecording && (
+            <span className="recording-badge">● REC {formatTime(state.recordingDuration)}</span>
+          )}
+        </div>
+        <div className="master-controls">
+          <div className="master-volume">
+            <label>Volume</label>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={state.volume}
+              onChange={(e) => setVolume(parseFloat(e.target.value))}
+            />
+            <span>{Math.round(state.volume * 100)}%</span>
+          </div>
+          <div className="master-record">
             <button
               className={`record-btn ${state.isRecording ? 'active' : ''}`}
               onClick={toggleRecording}
             >
               <span className="rec-dot"></span>
-              {state.isRecording ? 'Stop Recording' : 'Record'}
+              {state.isRecording ? 'Stop' : 'Record'}
             </button>
             {state.recordingBlob && !state.isRecording && (
               <div className="recording-actions">
                 <button className="btn btn-sm btn-accent" onClick={downloadRecording}>
-                  Download Recording
+                  Download
                 </button>
                 <button className="btn btn-sm btn-secondary" onClick={clearRecording}>
-                  Discard
+                  ×
                 </button>
               </div>
             )}
-          </div>
-        </div>
-      </section>
-
-      {/* DJ Scenes Card */}
-      <section className="card scenes-card">
-        <div className="card-header">
-          <h2 className="card-title">DJ Scenes</h2>
-          {state.isMorphing && (
-            <span className="morph-indicator">Morphing...</span>
-          )}
-        </div>
-        <div className="card-content">
-          <div className="scenes-row">
-            <div className="scene-slot">
-              <div className="scene-controls">
-                <button
-                  className={`scene-btn ${state.activeDjScene === 'A' ? 'active' : ''}`}
-                  onClick={loadDjSceneA}
-                >
-                  A
-                </button>
-                <button className="scene-store-btn" onClick={storeDjSceneA} title="Store to A">
-                  ↓
-                </button>
-              </div>
-              <button 
-                className="morph-btn"
-                onClick={() => morphToScene('A')}
-                disabled={state.isMorphing}
-              >
-                Morph → A
-              </button>
-            </div>
-
-            <div className="scene-slot">
-              <div className="scene-controls">
-                <button
-                  className={`scene-btn ${state.activeDjScene === 'B' ? 'active' : ''}`}
-                  onClick={loadDjSceneB}
-                >
-                  B
-                </button>
-                <button className="scene-store-btn" onClick={storeDjSceneB} title="Store to B">
-                  ↓
-                </button>
-              </div>
-              <button 
-                className="morph-btn"
-                onClick={() => morphToScene('B')}
-                disabled={state.isMorphing}
-              >
-                Morph → B
-              </button>
-            </div>
-
-            {state.isMorphing && (
-              <button className="cancel-morph-btn" onClick={cancelMorph}>
-                Cancel
-              </button>
-            )}
-          </div>
-
-          <div className="scene-presets">
-            <select
-              className="preset-select"
-              value={selectedDjPreset}
-              onChange={(e) => setSelectedDjPreset(e.target.value)}
-            >
-              <option value="">Load Scene Preset...</option>
-              {Object.keys(BUILT_IN_DJ_SCENES).map(name => (
-                <option key={name} value={name}>{name}</option>
-              ))}
-            </select>
-            <button 
-              className="btn btn-sm btn-secondary"
-              onClick={handleApplyDjPreset}
-              disabled={!selectedDjPreset}
-            >
-              Apply
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* Tempo Card */}
-      <section className="card tempo-card">
-        <div className="card-header">
-          <h2 className="card-title">Tempo</h2>
-          <button 
-            className="btn btn-sm btn-secondary"
-            onClick={() => setPlaybackRate(1.0)}
-          >
-            Reset
-          </button>
-        </div>
-        <div className="card-content">
-          <div className="tempo-control">
-            <div className="tempo-slider-container">
-              <input
-                type="range"
-                className="tempo-slider"
-                min={0.5}
-                max={1.5}
-                step={0.01}
-                value={state.playbackRate}
-                onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
-              />
-            </div>
-            <div className="tempo-display">
-              <span className="tempo-value">{(state.playbackRate * 100).toFixed(0)}%</span>
-              <span className="tempo-label">Speed</span>
-            </div>
-          </div>
-          <div className="tempo-presets">
-            <button className="btn btn-sm" onClick={() => setPlaybackRate(0.8)}>80%</button>
-            <button className="btn btn-sm" onClick={() => setPlaybackRate(0.9)}>90%</button>
-            <button className="btn btn-sm" onClick={() => setPlaybackRate(1.0)}>100%</button>
-            <button className="btn btn-sm" onClick={() => setPlaybackRate(1.1)}>110%</button>
-            <button className="btn btn-sm" onClick={() => setPlaybackRate(1.2)}>120%</button>
-          </div>
-        </div>
-      </section>
-
-      {/* Effects Card */}
-      <section className={`card effects-card ${state.djBypass ? 'bypassed' : ''}`}>
-        <div className="card-header">
-          <h2 className="card-title">Effects</h2>
-          <div className="fx-bypass-controls">
-            <span className={`fx-bypass-debug ${state.djBypass ? 'on' : 'off'}`}>
-              FX BYPASS: {state.djBypass ? 'ON' : 'OFF'}
-            </span>
-            <button
-              className={`btn btn-bypass ${state.djBypass ? 'active' : ''}`}
-              onClick={() => setDjBypass(!state.djBypass)}
-            >
-              {state.djBypass ? 'Bypassed' : 'Bypass'}
-            </button>
-          </div>
-        </div>
-        <div className="card-content">
-          {/* DJ Filter */}
-          <div className="effect-section">
-            <div className="effect-header">
-              <span className="effect-name">Filter</span>
-              <span className="effect-value">{getFilterLabel(state.djFilterValue)}</span>
-            </div>
-            <input
-              type="range"
-              className="effect-slider"
-              min={-100}
-              max={100}
-              step={1}
-              value={state.djFilterValue}
-              onChange={(e) => setDjFilterValue(parseInt(e.target.value))}
-              disabled={state.djBypass}
-            />
-            <div className="effect-labels">
-              <span>LP</span>
-              <span>OFF</span>
-              <span>HP</span>
-            </div>
-          </div>
-
-          {/* Echo */}
-          <div className="effect-section">
-            <div className="effect-header">
-              <span className="effect-name">Echo</span>
-              <span className="effect-value">{Math.round(state.echoMix * 100)}%</span>
-            </div>
-            <div className="effect-controls">
-              <div className="effect-control">
-                <label>Mix</label>
-                <input
-                  type="range"
-                  className="effect-slider-small"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={state.echoMix}
-                  onChange={(e) => setEchoMix(parseFloat(e.target.value))}
-                  disabled={state.djBypass}
-                />
-              </div>
-              <div className="effect-control">
-                <label>Time</label>
-                <input
-                  type="range"
-                  className="effect-slider-small"
-                  min={0.1}
-                  max={1.0}
-                  step={0.05}
-                  value={state.echoTime}
-                  onChange={(e) => setEchoTime(parseFloat(e.target.value))}
-                  disabled={state.djBypass}
-                />
-              </div>
-              <div className="effect-control">
-                <label>Feedback</label>
-                <input
-                  type="range"
-                  className="effect-slider-small"
-                  min={0}
-                  max={0.9}
-                  step={0.05}
-                  value={state.echoFeedback}
-                  onChange={(e) => setEchoFeedback(parseFloat(e.target.value))}
-                  disabled={state.djBypass}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Hot Cues Card */}
-      <section className="card hotcues-card">
-        <div className="card-header">
-          <h2 className="card-title">Hot Cues</h2>
-          <span className="card-hint">Shift+1-4 to set, 1-4 to trigger</span>
-        </div>
-        <div className="card-content">
-          <div className="hotcue-grid">
-            {[0, 1, 2, 3].map((index) => {
-              const cue = state.hotCues[index];
-              const colors = ['#f43f5e', '#eab308', '#22c55e', '#3b82f6'];
-              return (
-                <div key={index} className="hotcue-slot">
-                  <button
-                    className={`hotcue-btn ${cue ? 'active' : ''}`}
-                    style={{ '--cue-color': colors[index] } as React.CSSProperties}
-                    onClick={() => cue ? triggerHotCue(index) : setHotCue(index)}
-                    disabled={!state.audioSrc}
-                  >
-                    {index + 1}
-                  </button>
-                  {cue && (
-                    <div className="hotcue-info">
-                      <span className="hotcue-time">{formatTime(cue.time)}</span>
-                      <button 
-                        className="hotcue-clear"
-                        onClick={() => clearHotCue(index)}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      {/* Loop Card */}
-      <section className="card loop-card">
-        <div className="card-header">
-          <h2 className="card-title">Loop</h2>
-          <button
-            className="btn btn-sm btn-secondary"
-            onClick={clearLoop}
-            disabled={state.loopIn === null && state.loopOut === null}
-          >
-            Clear
-          </button>
-        </div>
-        <div className="card-content">
-          <div className="loop-controls">
-            <button
-              className={`loop-btn ${state.loopIn !== null ? 'active' : ''}`}
-              onClick={setLoopIn}
-              disabled={!state.audioSrc}
-            >
-              IN {state.loopIn !== null && <span>({formatTime(state.loopIn)})</span>}
-            </button>
-            <button
-              className={`loop-btn ${state.loopOut !== null ? 'active' : ''}`}
-              onClick={setLoopOut}
-              disabled={!state.audioSrc}
-            >
-              OUT {state.loopOut !== null && <span>({formatTime(state.loopOut)})</span>}
-            </button>
-            <button
-              className={`loop-toggle-btn ${state.loopEnabled ? 'active' : ''}`}
-              onClick={toggleLoop}
-              disabled={state.loopIn === null || state.loopOut === null}
-            >
-              {state.loopEnabled ? 'LOOP ON' : 'LOOP OFF'}
-            </button>
           </div>
         </div>
       </section>

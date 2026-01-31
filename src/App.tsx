@@ -23,18 +23,22 @@ function AppContent() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   
   const { 
-    setAudioElement, 
+    setAudioElementA,
+    setAudioElementB,
     state, 
-    togglePlay,
-    seek,
-    skipBackward,
-    skipForward,
-    setPlaybackRate,
-    setHotCue,
-    triggerHotCue,
+    togglePlayActive,
+    seekActive,
+    skipBackwardActive,
+    skipForwardActive,
+    toggleActiveDeck,
+    setHotCueActive,
+    triggerHotCueActive,
+    getHotCueActive,
     setEqBypass,
-    setDjBypass,
-    setDjFilterValue,
+    setDjBypassA,
+    setDjBypassB,
+    setDjFilterValueA,
+    setDjFilterValueB,
     toggleSafeMode,
     toggleRecording,
     loadDjSceneA,
@@ -44,26 +48,33 @@ function AppContent() {
     morphToScene,
     cancelMorph,
     panicFx,
-    setLoopIn,
-    setLoopOut,
-    toggleLoop,
-    clearLoop,
-    moveLoopWindow,
+    setLoopInActive,
+    setLoopOutActive,
+    toggleLoopActive,
+    clearLoopActive,
+    moveLoopWindowActive,
+    setCrossfader,
+    nudgeCrossfader,
+    setPlaybackRateA,
+    setPlaybackRateB,
   } = useAudioEngine();
   
   const { showToast } = useToast();
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const audioRefA = useRef<HTMLAudioElement>(null);
+  const audioRefB = useRef<HTMLAudioElement>(null);
   const navigate = useNavigate();
   
   useEffect(() => {
-    if (audioRef.current) {
-      setAudioElement(audioRef.current);
+    if (audioRefA.current) {
+      setAudioElementA(audioRefA.current);
     }
-  }, [setAudioElement]);
+    if (audioRefB.current) {
+      setAudioElementB(audioRefB.current);
+    }
+  }, [setAudioElementA, setAudioElementB]);
 
   // Global keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    // Ignore if typing in an input
     const target = e.target as HTMLElement;
     if (
       target.tagName === 'INPUT' || 
@@ -74,12 +85,10 @@ function AppContent() {
       return;
     }
     
-    // Ignore when modal is open (except Escape)
     if (showShortcuts && e.code !== 'Escape') {
       return;
     }
 
-    // Ignore Cmd/Meta combos (browser shortcuts)
     if (e.metaKey && !e.ctrlKey && !e.altKey) {
       return;
     }
@@ -88,8 +97,11 @@ function AppContent() {
     const shift = e.shiftKey;
     const ctrl = e.ctrlKey;
     const alt = e.altKey;
+    
+    const activeDeck = state.activeDeck;
+    const deckState = activeDeck === 'A' ? state.deckA : state.deckB;
 
-    // Handle navigation with Ctrl+Alt
+    // Navigation with Ctrl+Alt
     if (ctrl && alt) {
       if (code === 'Digit1') {
         e.preventDefault();
@@ -106,129 +118,161 @@ function AppContent() {
     }
 
     switch (code) {
+      // Toggle active deck
+      case 'Tab':
+        e.preventDefault();
+        toggleActiveDeck();
+        showToast(`Active: Deck ${state.activeDeck === 'A' ? 'B' : 'A'}`);
+        break;
+
       // Transport
       case 'Space':
         e.preventDefault();
-        togglePlay();
+        togglePlayActive();
         break;
         
       case 'ArrowLeft':
         e.preventDefault();
         if (shift) {
-          // Fine nudge -0.2s
-          seek(state.currentTime - 0.2);
-          showToast('Nudge -0.2s');
+          seekActive(deckState.currentTime - 0.2);
         } else {
-          skipBackward(5);
+          skipBackwardActive(5);
         }
         break;
         
       case 'ArrowRight':
         e.preventDefault();
         if (shift) {
-          // Fine nudge +0.2s
-          seek(state.currentTime + 0.2);
-          showToast('Nudge +0.2s');
+          seekActive(deckState.currentTime + 0.2);
         } else {
-          skipForward(5);
+          skipForwardActive(5);
         }
         break;
         
-      // J/K/L transport
       case 'KeyK':
         e.preventDefault();
-        togglePlay();
+        togglePlayActive();
         break;
         
       case 'KeyJ':
         e.preventDefault();
-        skipBackward(5);
+        skipBackwardActive(5);
         break;
         
       case 'KeyL':
         if (!ctrl) {
           e.preventDefault();
-          skipForward(5);
+          skipForwardActive(5);
         }
         break;
 
-      // Hot cues 1-4 using event.code
+      // Hot cues
       case 'Digit1':
       case 'Digit2':
       case 'Digit3':
       case 'Digit4':
-        // Skip if Ctrl+Alt (navigation)
         if (ctrl && alt) break;
-        
         e.preventDefault();
         const cueIndex = parseInt(code.replace('Digit', '')) - 1;
         if (shift) {
-          setHotCue(cueIndex);
-          showToast(`Cue ${cueIndex + 1} set at ${formatTime(state.currentTime)}`, 'success');
+          setHotCueActive(cueIndex);
+          showToast(`Deck ${activeDeck} Cue ${cueIndex + 1} set at ${formatTime(deckState.currentTime)}`, 'success');
         } else {
-          const cue = state.hotCues[cueIndex];
+          const cue = getHotCueActive(cueIndex);
           if (cue) {
-            triggerHotCue(cueIndex);
-            showToast(`Cue ${cueIndex + 1} → ${formatTime(cue.time)}`);
+            triggerHotCueActive(cueIndex);
+            showToast(`Deck ${activeDeck} Cue ${cueIndex + 1} → ${formatTime(cue.time)}`);
           } else {
-            showToast(`Cue ${cueIndex + 1} not set`, 'warning');
+            showToast(`Deck ${activeDeck} Cue ${cueIndex + 1} not set`, 'warning');
           }
         }
         break;
 
-      // Tempo / Rate
+      // Tempo
       case 'Equal':
       case 'NumpadAdd':
         e.preventDefault();
-        const newRateUp = Math.min(1.5, state.playbackRate + 0.01);
-        setPlaybackRate(newRateUp);
-        showToast(`Tempo ${Math.round(newRateUp * 100)}%`);
+        const currentRate = deckState.playbackRate;
+        const newRateUp = Math.min(1.5, currentRate + 0.01);
+        if (activeDeck === 'A') setPlaybackRateA(newRateUp);
+        else setPlaybackRateB(newRateUp);
+        showToast(`Deck ${activeDeck} Tempo ${Math.round(newRateUp * 100)}%`);
         break;
         
       case 'Minus':
       case 'NumpadSubtract':
         e.preventDefault();
-        const newRateDown = Math.max(0.5, state.playbackRate - 0.01);
-        setPlaybackRate(newRateDown);
-        showToast(`Tempo ${Math.round(newRateDown * 100)}%`);
+        const curRate = deckState.playbackRate;
+        const newRateDown = Math.max(0.5, curRate - 0.01);
+        if (activeDeck === 'A') setPlaybackRateA(newRateDown);
+        else setPlaybackRateB(newRateDown);
+        showToast(`Deck ${activeDeck} Tempo ${Math.round(newRateDown * 100)}%`);
         break;
         
       case 'Digit0':
         if (!ctrl && !alt) {
           e.preventDefault();
-          setPlaybackRate(1.0);
-          showToast('Tempo reset to 100%');
+          if (activeDeck === 'A') setPlaybackRateA(1.0);
+          else setPlaybackRateB(1.0);
+          showToast(`Deck ${activeDeck} Tempo reset to 100%`);
         }
         break;
 
-      // FX / Macros
+      // FX
       case 'KeyF':
         e.preventDefault();
-        setDjBypass(!state.djBypass);
-        showToast(state.djBypass ? 'FX Active' : 'FX Bypass ON', 'info');
+        if (activeDeck === 'A') {
+          setDjBypassA(!state.deckA.djBypass);
+          showToast(`Deck A FX ${state.deckA.djBypass ? 'Active' : 'Bypass'}`);
+        } else {
+          setDjBypassB(!state.deckB.djBypass);
+          showToast(`Deck B FX ${state.deckB.djBypass ? 'Active' : 'Bypass'}`);
+        }
         break;
         
       case 'KeyX':
         e.preventDefault();
         panicFx();
-        showToast('FX Panic - All FX Reset', 'warning');
+        showToast('FX Panic - All Reset', 'warning');
         break;
         
       case 'KeyQ':
         e.preventDefault();
         const qStep = shift ? -2 : -10;
-        const newFilterQ = Math.max(-100, state.djFilterValue + qStep);
-        setDjFilterValue(newFilterQ);
+        const currentFilterQ = deckState.djFilterValue;
+        const newFilterQ = Math.max(-100, currentFilterQ + qStep);
+        if (activeDeck === 'A') setDjFilterValueA(newFilterQ);
+        else setDjFilterValueB(newFilterQ);
         break;
         
       case 'KeyE':
         e.preventDefault();
         const eStep = shift ? 2 : 10;
-        const newFilterE = Math.min(100, state.djFilterValue + eStep);
-        setDjFilterValue(newFilterE);
+        const currentFilterE = deckState.djFilterValue;
+        const newFilterE = Math.min(100, currentFilterE + eStep);
+        if (activeDeck === 'A') setDjFilterValueA(newFilterE);
+        else setDjFilterValueB(newFilterE);
         break;
 
-      // Scenes & Morph
+      // Crossfader
+      case 'KeyZ':
+        e.preventDefault();
+        nudgeCrossfader(-0.05);
+        showToast(`Crossfader → A`);
+        break;
+        
+      case 'Slash':
+        if (!shift) {
+          e.preventDefault();
+          nudgeCrossfader(0.05);
+          showToast(`Crossfader → B`);
+        } else {
+          e.preventDefault();
+          setShowShortcuts(true);
+        }
+        break;
+
+      // Scenes
       case 'KeyA':
         e.preventDefault();
         if (shift) {
@@ -257,31 +301,30 @@ function AppContent() {
           cancelMorph();
           showToast('Morph cancelled');
         } else {
-          // Morph to the other scene
           const targetScene = state.activeDjScene === 'A' ? 'B' : 'A';
           morphToScene(targetScene);
           showToast(`Morphing to Scene ${targetScene}...`);
         }
         break;
 
-      // Looping
+      // Loop
       case 'KeyI':
         e.preventDefault();
-        setLoopIn();
-        showToast(`Loop IN: ${formatTime(state.currentTime)}`, 'info');
+        setLoopInActive();
+        showToast(`Deck ${activeDeck} Loop IN: ${formatTime(deckState.currentTime)}`, 'info');
         break;
         
       case 'KeyO':
         e.preventDefault();
-        setLoopOut();
-        showToast(`Loop OUT: ${formatTime(state.currentTime)}`, 'info');
+        setLoopOutActive();
+        showToast(`Deck ${activeDeck} Loop OUT: ${formatTime(deckState.currentTime)}`, 'info');
         break;
         
       case 'KeyP':
         e.preventDefault();
-        if (state.loopIn !== null && state.loopOut !== null) {
-          toggleLoop();
-          showToast(state.loopEnabled ? 'Loop OFF' : 'Loop ON');
+        if (deckState.loopIn !== null && deckState.loopOut !== null) {
+          toggleLoopActive();
+          showToast(`Deck ${activeDeck} Loop ${deckState.loopEnabled ? 'OFF' : 'ON'}`);
         } else {
           showToast('Set IN and OUT first', 'warning');
         }
@@ -289,24 +332,22 @@ function AppContent() {
         
       case 'BracketLeft':
         e.preventDefault();
-        if (state.loopEnabled) {
-          moveLoopWindow(-0.5);
-          showToast('Loop ← 0.5s');
+        if (deckState.loopEnabled) {
+          moveLoopWindowActive(-0.5);
         }
         break;
         
       case 'BracketRight':
         e.preventDefault();
-        if (state.loopEnabled) {
-          moveLoopWindow(0.5);
-          showToast('Loop → 0.5s');
+        if (deckState.loopEnabled) {
+          moveLoopWindowActive(0.5);
         }
         break;
         
       case 'Backspace':
         e.preventDefault();
-        clearLoop();
-        showToast('Loop cleared');
+        clearLoopActive();
+        showToast(`Deck ${activeDeck} Loop cleared`);
         break;
 
       // Recording
@@ -330,14 +371,6 @@ function AppContent() {
         showToast(state.isBypassed ? 'EQ Active' : 'EQ Bypass ON');
         break;
 
-      // Help
-      case 'Slash':
-        if (shift) {
-          e.preventDefault();
-          setShowShortcuts(true);
-        }
-        break;
-        
       case 'Escape':
         if (showShortcuts) {
           setShowShortcuts(false);
@@ -347,16 +380,19 @@ function AppContent() {
   }, [
     showShortcuts, 
     state,
-    togglePlay, 
-    seek,
-    skipBackward, 
-    skipForward,
-    setPlaybackRate,
-    setHotCue, 
-    triggerHotCue, 
+    togglePlayActive, 
+    seekActive,
+    skipBackwardActive, 
+    skipForwardActive,
+    toggleActiveDeck,
+    setHotCueActive, 
+    triggerHotCueActive,
+    getHotCueActive,
     setEqBypass,
-    setDjBypass,
-    setDjFilterValue,
+    setDjBypassA,
+    setDjBypassB,
+    setDjFilterValueA,
+    setDjFilterValueB,
     toggleSafeMode, 
     toggleRecording,
     loadDjSceneA,
@@ -366,11 +402,15 @@ function AppContent() {
     morphToScene,
     cancelMorph,
     panicFx,
-    setLoopIn,
-    setLoopOut,
-    toggleLoop,
-    clearLoop,
-    moveLoopWindow,
+    setLoopInActive,
+    setLoopOutActive,
+    toggleLoopActive,
+    clearLoopActive,
+    moveLoopWindowActive,
+    setCrossfader,
+    nudgeCrossfader,
+    setPlaybackRateA,
+    setPlaybackRateB,
     navigate,
     showToast,
   ]);
@@ -386,20 +426,25 @@ function AppContent() {
 
   return (
     <div className="app">
-      {/* Shared audio element */}
+      {/* Shared audio elements */}
       <audio
-        ref={audioRef}
-        src={state.audioSrc || undefined}
+        ref={audioRefA}
+        src={state.deckA.audioSrc || undefined}
+        crossOrigin="anonymous"
+        preload="metadata"
+      />
+      <audio
+        ref={audioRefB}
+        src={state.deckB.audioSrc || undefined}
         crossOrigin="anonymous"
         preload="metadata"
       />
 
-      {/* Mini Player (sticky top) */}
+      {/* Mini Player */}
       <MiniPlayer onShowShortcuts={() => setShowShortcuts(true)} />
 
       {/* Main Layout */}
       <div className="app-layout">
-        {/* Navigation */}
         <nav className="app-nav">
           <NavLink 
             to="/eq" 
@@ -415,7 +460,6 @@ function AppContent() {
           </NavLink>
         </nav>
 
-        {/* Main content */}
         <main className="app-main">
           <Routes>
             <Route path="/eq" element={<EQPage />} />
@@ -425,7 +469,6 @@ function AppContent() {
         </main>
       </div>
 
-      {/* Shortcuts Modal */}
       <ShortcutsModal 
         isOpen={showShortcuts} 
         onClose={() => setShowShortcuts(false)} 

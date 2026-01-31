@@ -7,9 +7,16 @@ interface ShortcutsModalProps {
 
 const shortcutGroups = [
   {
+    title: 'Decks',
+    shortcuts: [
+      { key: 'Tab', action: 'Switch active deck' },
+      { key: 'Z / /', action: 'Nudge crossfader ←/→' },
+    ],
+  },
+  {
     title: 'Transport',
     shortcuts: [
-      { key: 'Space / K', action: 'Play / Pause' },
+      { key: 'Space / K', action: 'Play / Pause (active)' },
       { key: '← / J', action: 'Seek -5s' },
       { key: '→ / L', action: 'Seek +5s' },
       { key: 'Shift + ←/→', action: 'Nudge ±0.2s' },
@@ -18,8 +25,8 @@ const shortcutGroups = [
   {
     title: 'Hot Cues',
     shortcuts: [
-      { key: '1–4', action: 'Trigger cue 1–4' },
-      { key: 'Shift + 1–4', action: 'Set cue 1–4' },
+      { key: '1–4', action: 'Trigger cue (active deck)' },
+      { key: 'Shift + 1–4', action: 'Set cue (active deck)' },
     ],
   },
   {

@@ -30,6 +30,31 @@
   flex-shrink: 0;
 }
 
+.mini-deck-indicator {
+  display: flex;
+  gap: 2px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.mini-deck-indicator span {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  transition: all 0.15s ease;
+}
+
+.mini-deck-indicator span.active {
+  background: rgba(59, 130, 246, 0.3);
+  color: #60a5fa;
+}
+
 .mini-transport {
   display: flex;
   align-items: center;

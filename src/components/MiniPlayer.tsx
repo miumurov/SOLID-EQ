@@ -16,14 +16,15 @@ interface MiniPlayerProps {
 export function MiniPlayer({ onShowShortcuts }: MiniPlayerProps) {
   const {
     state,
-    togglePlay,
+    togglePlayA,
     setVolume,
-    loadFile,
-    loadUrl,
+    loadFileA,
+    loadUrlA,
     toggleSafeMode,
     toggleRecording,
     downloadRecording,
     clearRecording,
+    toggleActiveDeck,
   } = useAudioEngine();
 
   const [showUrlInput, setShowUrlInput] = useState(false);
@@ -37,19 +38,21 @@ export function MiniPlayer({ onShowShortcuts }: MiniPlayerProps) {
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      await loadFile(file);
+      await loadFileA(file);
     }
-  }, [loadFile]);
+  }, [loadFileA]);
 
   const handleUrlSubmit = useCallback(() => {
     if (urlValue.trim()) {
-      loadUrl(urlValue.trim());
+      loadUrlA(urlValue.trim());
       setUrlValue('');
       setShowUrlInput(false);
     }
-  }, [urlValue, loadUrl]);
+  }, [urlValue, loadUrlA]);
 
-  const progress = state.duration > 0 ? (state.currentTime / state.duration) * 100 : 0;
+  // Use Deck A for main display
+  const deckA = state.deckA;
+  const progress = deckA.duration > 0 ? (deckA.currentTime / deckA.duration) * 100 : 0;
 
   return (
     <div className="mini-player">
@@ -57,15 +60,25 @@ export function MiniPlayer({ onShowShortcuts }: MiniPlayerProps) {
         {/* Brand */}
         <div className="mini-brand">SOLIDS</div>
 
+        {/* Active Deck Indicator */}
+        <button 
+          className="mini-deck-indicator"
+          onClick={toggleActiveDeck}
+          title="Toggle active deck (Tab)"
+        >
+          <span className={state.activeDeck === 'A' ? 'active' : ''}>A</span>
+          <span className={state.activeDeck === 'B' ? 'active' : ''}>B</span>
+        </button>
+
         {/* Transport Controls */}
         <div className="mini-transport">
           <button 
             className="mini-play-btn"
-            onClick={togglePlay}
-            disabled={!state.audioSrc}
-            aria-label={state.isPlaying ? 'Pause' : 'Play'}
+            onClick={togglePlayA}
+            disabled={!deckA.audioSrc}
+            aria-label={deckA.isPlaying ? 'Pause' : 'Play'}
           >
-            {state.isPlaying ? (
+            {deckA.isPlaying ? (
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
               </svg>
@@ -77,7 +90,7 @@ export function MiniPlayer({ onShowShortcuts }: MiniPlayerProps) {
           </button>
 
           <div className="mini-time">
-            {formatTime(state.currentTime)} / {formatTime(state.duration)}
+            {formatTime(deckA.currentTime)} / {formatTime(deckA.duration)}
           </div>
         </div>
 
@@ -92,8 +105,8 @@ export function MiniPlayer({ onShowShortcuts }: MiniPlayerProps) {
         </div>
 
         {/* Track Name */}
-        <div className="mini-track-name" title={state.fileName || 'No track loaded'}>
-          {state.fileName || 'No track loaded'}
+        <div className="mini-track-name" title={deckA.fileName || 'No track loaded'}>
+          {deckA.fileName || 'No track'}
         </div>
 
         {/* Volume */}
@@ -162,7 +175,7 @@ export function MiniPlayer({ onShowShortcuts }: MiniPlayerProps) {
           <button
             className="mini-action-btn"
             onClick={handleFileClick}
-            title="Load File"
+            title="Load File to Deck A"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" strokeLinecap="round" strokeLinejoin="round"/>

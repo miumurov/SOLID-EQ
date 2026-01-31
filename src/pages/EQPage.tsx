@@ -171,12 +171,12 @@ function formatTime(seconds: number): string {
 export function EQPage() {
   const {
     state,
-    loadFile,
-    loadUrl,
-    togglePlay,
-    seek,
-    skipBackward,
-    skipForward,
+    loadFileA,
+    loadUrlA,
+    togglePlayA,
+    seekA,
+    skipBackwardA,
+    skipForwardA,
     setVolume,
     setBandGain,
     setAllGains,
@@ -186,6 +186,9 @@ export function EQPage() {
     saveUserPreset,
     deleteUserPreset,
   } = useAudioEngine();
+  
+  // Use Deck A for EQ page
+  const deckA = state.deckA;
 
   const [urlInput, setUrlInput] = useState('');
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -205,21 +208,21 @@ export function EQPage() {
   // Sync seekValue when not seeking
   useEffect(() => {
     if (!isSeeking) {
-      setSeekValue(state.currentTime);
+      setSeekValue(deckA.currentTime);
     }
-  }, [state.currentTime, isSeeking]);
+  }, [deckA.currentTime, isSeeking]);
 
   // Compute waveform peaks
   useEffect(() => {
-    if (state.sourceBuffer) {
-      const peaks = computeWaveformPeaks(state.sourceBuffer, WAVEFORM_SAMPLES);
+    if (deckA.sourceBuffer) {
+      const peaks = computeWaveformPeaks(deckA.sourceBuffer, WAVEFORM_SAMPLES);
       waveformPeaksRef.current = peaks;
       drawWaveform();
     } else {
       waveformPeaksRef.current = [];
       drawWaveform();
     }
-  }, [state.sourceBuffer]);
+  }, [deckA.sourceBuffer]);
 
   const drawWaveform = useCallback(() => {
     const canvas = waveformCanvasRef.current;
@@ -287,7 +290,7 @@ export function EQPage() {
       if (!isPlayheadAnimatingRef.current) return;
       
       const canvas = waveformCanvasRef.current;
-      if (canvas && state.duration > 0) {
+      if (canvas && deckA.duration > 0) {
         const ctx = canvas.getContext('2d');
         if (ctx) {
           const rect = canvas.getBoundingClientRect();
@@ -296,7 +299,7 @@ export function EQPage() {
           
           drawWaveform();
           
-          const progress = state.currentTime / state.duration;
+          const progress = deckA.currentTime / deckA.duration;
           const playheadX = progress * width;
           
           ctx.beginPath();
@@ -314,7 +317,7 @@ export function EQPage() {
       playheadRafRef.current = requestAnimationFrame(updatePlayhead);
     };
     
-    if (state.isPlaying && state.duration > 0) {
+    if (deckA.isPlaying && deckA.duration > 0) {
       isPlayheadAnimatingRef.current = true;
       playheadRafRef.current = requestAnimationFrame(updatePlayhead);
     } else {
@@ -323,14 +326,14 @@ export function EQPage() {
         cancelAnimationFrame(playheadRafRef.current);
       }
       
-      if (state.duration > 0) {
+      if (deckA.duration > 0) {
         drawWaveform();
         const canvas = waveformCanvasRef.current;
         if (canvas) {
           const ctx = canvas.getContext('2d');
           if (ctx) {
             const rect = canvas.getBoundingClientRect();
-            const progress = state.currentTime / state.duration;
+            const progress = deckA.currentTime / deckA.duration;
             const playheadX = progress * rect.width;
             
             ctx.beginPath();
@@ -350,17 +353,17 @@ export function EQPage() {
         cancelAnimationFrame(playheadRafRef.current);
       }
     };
-  }, [state.isPlaying, state.duration, state.currentTime, drawWaveform]);
+  }, [deckA.isPlaying, deckA.duration, deckA.currentTime, drawWaveform]);
 
   const handleWaveformClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = waveformCanvasRef.current;
-    if (!canvas || !state.duration) return;
+    if (!canvas || !deckA.duration) return;
     
     const rect = canvas.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const progress = clickX / rect.width;
-    seek(progress * state.duration);
-  }, [state.duration, seek]);
+    seekA(progress * deckA.duration);
+  }, [deckA.duration, seekA]);
 
   const handleFileSelect = useCallback(async (file: File) => {
     const validTypes = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4', 'audio/x-m4a', 'audio/aac'];
@@ -374,8 +377,8 @@ export function EQPage() {
       return;
     }
 
-    await loadFile(file);
-  }, [loadFile]);
+    await loadFileA(file);
+  }, [loadFileA]);
 
   const handleFileDrop = useCallback((e: React.DragEvent<HTMLElement>) => {
     e.preventDefault();
@@ -393,9 +396,9 @@ export function EQPage() {
       return;
     }
 
-    loadUrl(urlInput);
+    loadUrlA(urlInput);
     setUrlInput('');
-  }, [urlInput, loadUrl]);
+  }, [urlInput, loadUrlA]);
 
   const handleApplyPreset = useCallback(() => {
     if (!selectedPreset) return;
@@ -445,26 +448,26 @@ export function EQPage() {
 
   const handleSeekPointerUp = useCallback(() => {
     if (isFinite(seekValue)) {
-      seek(seekValue);
+      seekA(seekValue);
     }
     setIsSeeking(false);
-  }, [seekValue, seek]);
+  }, [seekValue, seekA]);
 
   const exportWav = useCallback(async () => {
-    if (!state.sourceBuffer) return;
+    if (!deckA.sourceBuffer) return;
 
     setIsExporting(true);
     setExportStatus('Rendering...');
     
     try {
       const offlineCtx = new OfflineAudioContext(
-        state.sourceBuffer.numberOfChannels,
-        state.sourceBuffer.length,
-        state.sourceBuffer.sampleRate
+        deckA.sourceBuffer.numberOfChannels,
+        deckA.sourceBuffer.length,
+        deckA.sourceBuffer.sampleRate
       );
 
       const bufferSource = offlineCtx.createBufferSource();
-      bufferSource.buffer = state.sourceBuffer;
+      bufferSource.buffer = deckA.sourceBuffer;
 
       const filters = EQ_FREQUENCIES.map((freq, index) => {
         const filter = offlineCtx.createBiquadFilter();
@@ -505,7 +508,7 @@ export function EQPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const baseName = state.fileName?.replace(/\.[^/.]+$/, '') || 'audio';
+      const baseName = deckA.fileName?.replace(/\.[^/.]+$/, '') || 'audio';
       const formatSuffix = exportFormat === '32bit' ? '_32bit' : '';
       a.download = `${baseName}_eq${formatSuffix}.wav`;
       document.body.appendChild(a);
@@ -522,7 +525,7 @@ export function EQPage() {
     } finally {
       setIsExporting(false);
     }
-  }, [state.sourceBuffer, state.gains, state.fileName, exportFormat, normalizeOnExport]);
+  }, [deckA.sourceBuffer, state.gains, deckA.fileName, exportFormat, normalizeOnExport]);
 
   const formatFrequency = (freq: number) => {
     return freq >= 1000 ? `${freq / 1000}k` : `${freq}`;
@@ -578,7 +581,7 @@ export function EQPage() {
           <h2 className="card-title">Playback</h2>
         </div>
         <div className="card-content">
-          {state.audioSrc ? (
+          {deckA.audioSrc ? (
             <>
               <div className="track-row">
                 <div className="track-artwork">
@@ -587,11 +590,11 @@ export function EQPage() {
                   </svg>
                 </div>
                 <div className="track-meta">
-                  <div className="track-title">{state.fileName}</div>
-                  <div className="track-subtitle">{state.isPlaying ? 'Playing' : 'Paused'}</div>
+                  <div className="track-title">{deckA.fileName}</div>
+                  <div className="track-subtitle">{deckA.isPlaying ? 'Playing' : 'Paused'}</div>
                 </div>
                 <div className="track-time">
-                  {formatTime(state.currentTime)} / {formatTime(state.duration)}
+                  {formatTime(deckA.currentTime)} / {formatTime(deckA.duration)}
                 </div>
               </div>
 
@@ -600,10 +603,10 @@ export function EQPage() {
                   type="range"
                   className="timeline-slider"
                   min={0}
-                  max={state.duration || 0}
+                  max={deckA.duration || 0}
                   step={0.01}
-                  value={Math.min(seekValue, state.duration || 0)}
-                  disabled={!state.duration || state.duration <= 0}
+                  value={Math.min(seekValue, deckA.duration || 0)}
+                  disabled={!deckA.duration || deckA.duration <= 0}
                   onChange={handleSeekChange}
                   onPointerDown={handleSeekPointerDown}
                   onPointerUp={handleSeekPointerUp}
@@ -614,10 +617,10 @@ export function EQPage() {
                 <div className="playback-buttons">
                   <button 
                     className="play-pause-btn" 
-                    onClick={togglePlay} 
-                    aria-label={state.isPlaying ? 'Pause' : 'Play'}
+                    onClick={togglePlayA} 
+                    aria-label={deckA.isPlaying ? 'Pause' : 'Play'}
                   >
-                    {state.isPlaying ? (
+                    {deckA.isPlaying ? (
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
                       </svg>
@@ -629,15 +632,15 @@ export function EQPage() {
                   </button>
                   <button 
                     className="skip-btn" 
-                    onClick={() => skipBackward()}
-                    disabled={!state.duration}
+                    onClick={() => skipBackwardA()}
+                    disabled={!deckA.duration}
                   >
                     −5s
                   </button>
                   <button 
                     className="skip-btn" 
-                    onClick={() => skipForward()}
-                    disabled={!state.duration}
+                    onClick={() => skipForwardA()}
+                    disabled={!deckA.duration}
                   >
                     +5s
                   </button>
@@ -846,7 +849,7 @@ export function EQPage() {
                 </div>
               ) : (
                 <div className="export-hint">
-                  {state.sourceBuffer 
+                  {deckA.sourceBuffer 
                     ? `Ready to export • ${exportFormat === '32bit' ? '32-bit float' : '16-bit PCM'}${normalizeOnExport ? ' • Normalized' : ''}`
                     : 'Load a local audio file to enable export'}
                 </div>
@@ -855,7 +858,7 @@ export function EQPage() {
             <button
               className="btn btn-accent"
               onClick={exportWav}
-              disabled={!state.sourceBuffer || isExporting}
+              disabled={!deckA.sourceBuffer || isExporting}
             >
               {isExporting ? (
                 <span className="loading">{exportStatus || 'Exporting...'}</span>
