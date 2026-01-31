@@ -111,6 +111,9 @@ const DEFAULT_DJ_SCENE: DJSceneParams = {
   echoFeedback: 0.4,
 };
 
+// Minimum gap between loopIn and loopOut
+const LOOP_MIN_GAP = 0.05;
+
 export class AudioEngine {
   private audioElement: HTMLAudioElement | null = null;
   private audioContext: AudioContext | null = null;
@@ -124,6 +127,12 @@ export class AudioEngine {
   private echoDryGain: GainNode | null = null;
   private compressor: DynamicsCompressorNode | null = null;
   private preCompressorGain: GainNode | null = null;
+  
+  // FX bypass dry/wet routing
+  private fxDryGain: GainNode | null = null;
+  private fxWetGain: GainNode | null = null;
+  private postFxGain: GainNode | null = null;
+  
   private mediaStreamDest: MediaStreamAudioDestinationNode | null = null;
   private mediaRecorder: MediaRecorder | null = null;
   private recordedChunks: Blob[] = [];
@@ -316,6 +325,18 @@ export class AudioEngine {
     this.djFilter.frequency.value = 20000;
     this.djFilter.Q.value = 0.7;
     
+    // FX bypass dry/wet routing
+    // preFX -> fxDryGain -> postFxGain (dry path - always connected)
+    // preFX -> fxChain -> fxWetGain -> postFxGain (wet path)
+    this.fxDryGain = ctx.createGain();
+    this.fxDryGain.gain.value = this.state.djBypass ? 1 : 0;
+    
+    this.fxWetGain = ctx.createGain();
+    this.fxWetGain.gain.value = this.state.djBypass ? 0 : 1;
+    
+    this.postFxGain = ctx.createGain();
+    this.postFxGain.gain.value = 1;
+    
     // Echo effect chain
     this.echoDelay = ctx.createDelay(2.0);
     this.echoDelay.delayTime.value = this.state.echoTime;
@@ -359,7 +380,8 @@ export class AudioEngine {
   }
 
   private connectGraph() {
-    if (!this.sourceNode || !this.audioContext || !this.masterGain || !this.djFilter || !this.preCompressorGain) return;
+    if (!this.sourceNode || !this.audioContext || !this.masterGain || !this.djFilter || 
+        !this.preCompressorGain || !this.fxDryGain || !this.fxWetGain || !this.postFxGain) return;
     
     const ctx = this.audioContext;
     const lastFilter = this.filters[this.filters.length - 1];
@@ -367,6 +389,9 @@ export class AudioEngine {
     // Disconnect everything first
     try { this.sourceNode.disconnect(); } catch {}
     try { lastFilter?.disconnect(); } catch {}
+    try { this.fxDryGain.disconnect(); } catch {}
+    try { this.fxWetGain.disconnect(); } catch {}
+    try { this.postFxGain.disconnect(); } catch {}
     try { this.djFilter.disconnect(); } catch {}
     try { this.echoDryGain?.disconnect(); } catch {}
     try { this.echoDelay?.disconnect(); } catch {}
@@ -376,28 +401,38 @@ export class AudioEngine {
     try { this.compressor?.disconnect(); } catch {}
     try { this.masterGain.disconnect(); } catch {}
     
-    // Source -> EQ (or bypass)
+    // Source -> EQ (or bypass) -> preFX point
+    // preFX point is where we split into dry and wet paths
     if (this.state.isBypassed) {
+      // EQ bypassed: source -> fxDryGain (dry path)
+      //              source -> fxChain -> fxWetGain (wet path)
+      this.sourceNode.connect(this.fxDryGain);
       this.sourceNode.connect(this.djFilter);
     } else {
+      // EQ active: source -> EQ -> fxDryGain (dry path)
+      //            source -> EQ -> fxChain -> fxWetGain (wet path)
       this.sourceNode.connect(this.filters[0]);
+      lastFilter.connect(this.fxDryGain);
       lastFilter.connect(this.djFilter);
     }
     
-    // DJ Filter -> Echo (or bypass) -> preCompressorGain
-    if (this.state.djBypass) {
-      this.djFilter.connect(this.preCompressorGain);
-    } else {
-      this.djFilter.connect(this.echoDryGain!);
-      this.djFilter.connect(this.echoDelay!);
-      
-      this.echoDelay!.connect(this.echoMixGain!);
-      this.echoDelay!.connect(this.echoFeedbackGain!);
-      this.echoFeedbackGain!.connect(this.echoDelay!);
-      
-      this.echoDryGain!.connect(this.preCompressorGain);
-      this.echoMixGain!.connect(this.preCompressorGain);
-    }
+    // Dry path: fxDryGain -> postFxGain (direct, no FX)
+    this.fxDryGain.connect(this.postFxGain);
+    
+    // Wet path: djFilter -> echo -> fxWetGain -> postFxGain
+    this.djFilter.connect(this.echoDryGain!);
+    this.djFilter.connect(this.echoDelay!);
+    
+    this.echoDelay!.connect(this.echoMixGain!);
+    this.echoDelay!.connect(this.echoFeedbackGain!);
+    this.echoFeedbackGain!.connect(this.echoDelay!);
+    
+    this.echoDryGain!.connect(this.fxWetGain);
+    this.echoMixGain!.connect(this.fxWetGain);
+    this.fxWetGain.connect(this.postFxGain);
+    
+    // postFxGain -> preCompressorGain
+    this.postFxGain.connect(this.preCompressorGain);
     
     // preCompressorGain -> Compressor (if Safe Mode) -> masterGain -> destination
     if (this.state.safeModeEnabled && this.compressor) {
@@ -639,7 +674,20 @@ export class AudioEngine {
 
   setDjBypass(bypass: boolean): void {
     this.state.djBypass = bypass;
-    this.connectGraph();
+    
+    // Use gain nodes for true bypass - no need to reconnect graph
+    if (this.fxDryGain && this.fxWetGain) {
+      if (bypass) {
+        // Bypass ON: dry=1, wet=0 (only dry signal passes through)
+        this.fxDryGain.gain.value = 1;
+        this.fxWetGain.gain.value = 0;
+      } else {
+        // Bypass OFF: dry=0, wet=1 (only wet/FX signal passes through)
+        this.fxDryGain.gain.value = 0;
+        this.fxWetGain.gain.value = 1;
+      }
+    }
+    
     this.notifyListeners();
   }
 
@@ -668,19 +716,68 @@ export class AudioEngine {
     }
   }
 
-  // Loop
+  // Loop - with validation
+  private normalizeLoopMarkers(): void {
+    const duration = this.state.duration || 0;
+    
+    // Clamp both to [0, duration]
+    if (this.state.loopIn !== null) {
+      this.state.loopIn = Math.max(0, Math.min(this.state.loopIn, duration));
+    }
+    if (this.state.loopOut !== null) {
+      this.state.loopOut = Math.max(0, Math.min(this.state.loopOut, duration));
+    }
+    
+    // Enforce loopOut >= loopIn + minGap
+    if (this.state.loopIn !== null && this.state.loopOut !== null) {
+      if (this.state.loopOut < this.state.loopIn + LOOP_MIN_GAP) {
+        // Move loopOut forward to maintain minimum gap
+        this.state.loopOut = Math.min(this.state.loopIn + LOOP_MIN_GAP, duration);
+        
+        // If still not valid (at end of track), adjust loopIn backwards
+        if (this.state.loopOut < this.state.loopIn + LOOP_MIN_GAP) {
+          this.state.loopIn = Math.max(0, this.state.loopOut - LOOP_MIN_GAP);
+        }
+      }
+    }
+  }
+
   setLoopIn(): void {
-    this.state.loopIn = this.state.currentTime;
+    const duration = this.state.duration || 0;
+    let newLoopIn = Math.max(0, Math.min(this.state.currentTime, duration));
+    
+    // If loopOut exists and newLoopIn would violate constraint, adjust loopOut
+    if (this.state.loopOut !== null && newLoopIn >= this.state.loopOut - LOOP_MIN_GAP) {
+      // Move loopOut forward
+      this.state.loopOut = Math.min(newLoopIn + LOOP_MIN_GAP, duration);
+    }
+    
+    this.state.loopIn = newLoopIn;
+    this.normalizeLoopMarkers();
     this.notifyListeners();
   }
 
   setLoopOut(): void {
-    this.state.loopOut = this.state.currentTime;
+    const duration = this.state.duration || 0;
+    let newLoopOut = Math.max(0, Math.min(this.state.currentTime, duration));
+    
+    // If loopIn exists and newLoopOut would violate constraint, it must be >= loopIn + minGap
+    if (this.state.loopIn !== null && newLoopOut < this.state.loopIn + LOOP_MIN_GAP) {
+      // Set loopOut to minimum valid value
+      newLoopOut = Math.min(this.state.loopIn + LOOP_MIN_GAP, duration);
+    }
+    
+    this.state.loopOut = newLoopOut;
+    this.normalizeLoopMarkers();
     this.notifyListeners();
   }
 
   toggleLoop(): void {
-    this.state.loopEnabled = !this.state.loopEnabled;
+    // Only enable loop if both markers are set and valid
+    if (this.state.loopIn !== null && this.state.loopOut !== null) {
+      this.normalizeLoopMarkers();
+      this.state.loopEnabled = !this.state.loopEnabled;
+    }
     this.notifyListeners();
   }
 

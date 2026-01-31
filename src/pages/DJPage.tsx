@@ -496,12 +496,17 @@ export function DJPage() {
       <section className={`card effects-card ${state.djBypass ? 'bypassed' : ''}`}>
         <div className="card-header">
           <h2 className="card-title">Effects</h2>
-          <button
-            className={`btn btn-bypass ${state.djBypass ? 'active' : ''}`}
-            onClick={() => setDjBypass(!state.djBypass)}
-          >
-            {state.djBypass ? 'Bypassed' : 'Bypass'}
-          </button>
+          <div className="fx-bypass-controls">
+            <span className={`fx-bypass-debug ${state.djBypass ? 'on' : 'off'}`}>
+              FX BYPASS: {state.djBypass ? 'ON' : 'OFF'}
+            </span>
+            <button
+              className={`btn btn-bypass ${state.djBypass ? 'active' : ''}`}
+              onClick={() => setDjBypass(!state.djBypass)}
+            >
+              {state.djBypass ? 'Bypassed' : 'Bypass'}
+            </button>
+          </div>
         </div>
         <div className="card-content">
           {/* DJ Filter */}
