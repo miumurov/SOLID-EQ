@@ -92,6 +92,37 @@ const DEFAULT_DECK_STATE: DeckState = {
   loopEnabled: false,
 };
 
+// Stem state
+export interface StemState {
+  gain: number;      // 0 = muted, 1 = normal, 2 = boosted
+  muted: boolean;
+  solo: boolean;
+}
+
+export interface StemsState {
+  vocals: StemState;
+  drums: StemState;
+  bass: StemState;
+  other: StemState;
+  enabled: boolean;  // Master stem bypass
+}
+
+const DEFAULT_STEM_STATE: StemState = {
+  gain: 1,
+  muted: false,
+  solo: false,
+};
+
+export const DEFAULT_STEMS_STATE: StemsState = {
+  vocals: { ...DEFAULT_STEM_STATE },
+  drums: { ...DEFAULT_STEM_STATE },
+  bass: { ...DEFAULT_STEM_STATE },
+  other: { ...DEFAULT_STEM_STATE },
+  enabled: true,
+};
+
+export type StemName = 'vocals' | 'drums' | 'bass' | 'other';
+
 export interface AudioEngineState {
   // Deck states
   deckA: DeckState;
@@ -108,6 +139,9 @@ export interface AudioEngineState {
   activeSlot: 'A' | 'B';
   slotAGains: number[];
   slotBGains: number[];
+  
+  // Stems (applied to Deck A only)
+  stems: StemsState;
   
   // DJ Scenes (global)
   djSceneA: DJSceneParams;
@@ -159,6 +193,32 @@ export class AudioEngine {
   private echoDryGainA: GainNode | null = null;
   private deckGainA: GainNode | null = null;
   
+  // Stem processing nodes (Deck A only)
+  private stemBypassGain: GainNode | null = null;
+  private stemWetGain: GainNode | null = null;
+  private stemDryGain: GainNode | null = null;
+  private stemSum: GainNode | null = null;
+  
+  // Vocals chain: bandpass 300-4000Hz
+  private vocalsFilter1: BiquadFilterNode | null = null;
+  private vocalsFilter2: BiquadFilterNode | null = null;
+  private vocalsGain: GainNode | null = null;
+  
+  // Drums chain: highpass 100Hz + peak 2-5kHz
+  private drumsFilter1: BiquadFilterNode | null = null;
+  private drumsFilter2: BiquadFilterNode | null = null;
+  private drumsGain: GainNode | null = null;
+  
+  // Bass chain: lowpass 200Hz
+  private bassFilter1: BiquadFilterNode | null = null;
+  private bassFilter2: BiquadFilterNode | null = null;
+  private bassGain: GainNode | null = null;
+  
+  // Other chain: wide bandpass (what's left)
+  private otherFilter1: BiquadFilterNode | null = null;
+  private otherFilter2: BiquadFilterNode | null = null;
+  private otherGain: GainNode | null = null;
+  
   // Deck B nodes
   private sourceNodeB: MediaElementAudioSourceNode | null = null;
   private fxDryGainB: GainNode | null = null;
@@ -199,6 +259,13 @@ export class AudioEngine {
     activeSlot: 'A',
     slotAGains: [...FLAT_GAINS],
     slotBGains: [...FLAT_GAINS],
+    stems: {
+      vocals: { gain: 1, muted: false, solo: false },
+      drums: { gain: 1, muted: false, solo: false },
+      bass: { gain: 1, muted: false, solo: false },
+      other: { gain: 1, muted: false, solo: false },
+      enabled: true,
+    },
     djSceneA: { ...DEFAULT_DJ_SCENE },
     djSceneB: { ...DEFAULT_DJ_SCENE },
     activeDjScene: 'A',
@@ -432,6 +499,9 @@ export class AudioEngine {
       this.filtersA[i].connect(this.filtersA[i + 1]);
     }
     
+    // Stem processing chains
+    this.buildStemNodes(ctx);
+    
     // FX bypass dry/wet
     this.fxDryGainA = ctx.createGain();
     this.fxWetGainA = ctx.createGain();
@@ -467,14 +537,142 @@ export class AudioEngine {
     console.log('[AudioEngine] Deck A graph built');
   }
 
+  private buildStemNodes(ctx: AudioContext) {
+    // Bypass/dry/wet for stems
+    this.stemBypassGain = ctx.createGain();
+    this.stemBypassGain.gain.value = this.state.stems.enabled ? 0 : 1;
+    this.stemDryGain = ctx.createGain();
+    this.stemDryGain.gain.value = 1;
+    this.stemWetGain = ctx.createGain();
+    this.stemWetGain.gain.value = this.state.stems.enabled ? 1 : 0;
+    this.stemSum = ctx.createGain();
+    this.stemSum.gain.value = 1;
+    
+    // Vocals chain: bandpass 300-4000Hz (mid-range where vocals sit)
+    this.vocalsFilter1 = ctx.createBiquadFilter();
+    this.vocalsFilter1.type = 'highpass';
+    this.vocalsFilter1.frequency.value = 300;
+    this.vocalsFilter1.Q.value = 0.7;
+    
+    this.vocalsFilter2 = ctx.createBiquadFilter();
+    this.vocalsFilter2.type = 'lowpass';
+    this.vocalsFilter2.frequency.value = 4000;
+    this.vocalsFilter2.Q.value = 0.7;
+    
+    this.vocalsGain = ctx.createGain();
+    this.vocalsGain.gain.value = this.getEffectiveStemGain('vocals');
+    
+    // Connect vocals chain
+    this.vocalsFilter1.connect(this.vocalsFilter2);
+    this.vocalsFilter2.connect(this.vocalsGain);
+    this.vocalsGain.connect(this.stemSum);
+    
+    // Drums chain: highpass 100Hz + peak at 2-5kHz (transient/attack frequencies)
+    this.drumsFilter1 = ctx.createBiquadFilter();
+    this.drumsFilter1.type = 'highpass';
+    this.drumsFilter1.frequency.value = 100;
+    this.drumsFilter1.Q.value = 0.5;
+    
+    this.drumsFilter2 = ctx.createBiquadFilter();
+    this.drumsFilter2.type = 'peaking';
+    this.drumsFilter2.frequency.value = 3500;
+    this.drumsFilter2.Q.value = 1.5;
+    this.drumsFilter2.gain.value = 4;
+    
+    this.drumsGain = ctx.createGain();
+    this.drumsGain.gain.value = this.getEffectiveStemGain('drums');
+    
+    // Connect drums chain
+    this.drumsFilter1.connect(this.drumsFilter2);
+    this.drumsFilter2.connect(this.drumsGain);
+    this.drumsGain.connect(this.stemSum);
+    
+    // Bass chain: lowpass 200Hz
+    this.bassFilter1 = ctx.createBiquadFilter();
+    this.bassFilter1.type = 'lowpass';
+    this.bassFilter1.frequency.value = 200;
+    this.bassFilter1.Q.value = 0.7;
+    
+    this.bassFilter2 = ctx.createBiquadFilter();
+    this.bassFilter2.type = 'peaking';
+    this.bassFilter2.frequency.value = 80;
+    this.bassFilter2.Q.value = 1.0;
+    this.bassFilter2.gain.value = 2;
+    
+    this.bassGain = ctx.createGain();
+    this.bassGain.gain.value = this.getEffectiveStemGain('bass');
+    
+    // Connect bass chain
+    this.bassFilter1.connect(this.bassFilter2);
+    this.bassFilter2.connect(this.bassGain);
+    this.bassGain.connect(this.stemSum);
+    
+    // Other chain: wide bandpass (fills remaining spectrum)
+    this.otherFilter1 = ctx.createBiquadFilter();
+    this.otherFilter1.type = 'bandpass';
+    this.otherFilter1.frequency.value = 2500;
+    this.otherFilter1.Q.value = 0.3; // Wide Q
+    
+    this.otherFilter2 = ctx.createBiquadFilter();
+    this.otherFilter2.type = 'peaking';
+    this.otherFilter2.frequency.value = 6000;
+    this.otherFilter2.Q.value = 0.5;
+    this.otherFilter2.gain.value = 2;
+    
+    this.otherGain = ctx.createGain();
+    this.otherGain.gain.value = this.getEffectiveStemGain('other');
+    
+    // Connect other chain
+    this.otherFilter1.connect(this.otherFilter2);
+    this.otherFilter2.connect(this.otherGain);
+    this.otherGain.connect(this.stemSum);
+  }
+
+  private getEffectiveStemGain(stem: StemName): number {
+    const stemState = this.state.stems[stem];
+    const stems = this.state.stems;
+    
+    // Check if any stem is soloed
+    const anySoloed = stems.vocals.solo || stems.drums.solo || stems.bass.solo || stems.other.solo;
+    
+    if (anySoloed) {
+      // If this stem is soloed, use its gain; otherwise mute
+      return stemState.solo ? stemState.gain : 0;
+    }
+    
+    // No solo active - use mute and gain
+    return stemState.muted ? 0 : stemState.gain;
+  }
+
+  private updateAllStemGains() {
+    if (this.vocalsGain) this.vocalsGain.gain.value = this.getEffectiveStemGain('vocals');
+    if (this.drumsGain) this.drumsGain.gain.value = this.getEffectiveStemGain('drums');
+    if (this.bassGain) this.bassGain.gain.value = this.getEffectiveStemGain('bass');
+    if (this.otherGain) this.otherGain.gain.value = this.getEffectiveStemGain('other');
+    
+    // Update dry/wet for stem bypass
+    if (this.stemBypassGain && this.stemWetGain) {
+      this.stemBypassGain.gain.value = this.state.stems.enabled ? 0 : 1;
+      this.stemWetGain.gain.value = this.state.stems.enabled ? 1 : 0;
+    }
+  }
+
   private connectDeckA() {
     if (!this.sourceNodeA || !this.crossfadeGainA) return;
     
     const lastFilter = this.filtersA[this.filtersA.length - 1];
     
-    // Disconnect
+    // Disconnect all nodes
     try { this.sourceNodeA.disconnect(); } catch {}
     try { lastFilter?.disconnect(); } catch {}
+    try { this.stemBypassGain?.disconnect(); } catch {}
+    try { this.stemDryGain?.disconnect(); } catch {}
+    try { this.stemWetGain?.disconnect(); } catch {}
+    try { this.stemSum?.disconnect(); } catch {}
+    try { this.vocalsFilter1?.disconnect(); } catch {}
+    try { this.drumsFilter1?.disconnect(); } catch {}
+    try { this.bassFilter1?.disconnect(); } catch {}
+    try { this.otherFilter1?.disconnect(); } catch {}
     try { this.fxDryGainA?.disconnect(); } catch {}
     try { this.fxWetGainA?.disconnect(); } catch {}
     try { this.djFilterA?.disconnect(); } catch {}
@@ -484,15 +682,51 @@ export class AudioEngine {
     try { this.echoFeedbackGainA?.disconnect(); } catch {}
     try { this.deckGainA?.disconnect(); } catch {}
     
-    // Source -> EQ (or bypass) -> preFX
+    // Source -> EQ (or bypass) -> preStem point
+    let preStemNode: AudioNode;
     if (this.state.isBypassed) {
-      this.sourceNodeA.connect(this.fxDryGainA!);
-      this.sourceNodeA.connect(this.djFilterA!);
+      preStemNode = this.sourceNodeA;
     } else {
       this.sourceNodeA.connect(this.filtersA[0]);
-      lastFilter.connect(this.fxDryGainA!);
-      lastFilter.connect(this.djFilterA!);
+      preStemNode = lastFilter;
     }
+    
+    // preStem -> stem processing -> DJ FX
+    // Bypass path: preStem -> stemBypassGain -> stemDryGain
+    // Wet path: preStem -> 4 stem chains -> stemSum -> stemWetGain
+    preStemNode.connect(this.stemBypassGain!);
+    this.stemBypassGain!.connect(this.stemDryGain!);
+    
+    // Connect to all stem chains
+    preStemNode.connect(this.vocalsFilter1!);
+    preStemNode.connect(this.drumsFilter1!);
+    preStemNode.connect(this.bassFilter1!);
+    preStemNode.connect(this.otherFilter1!);
+    
+    // Reconnect internal stem chains (in case they were disconnected)
+    this.vocalsFilter1!.connect(this.vocalsFilter2!);
+    this.vocalsFilter2!.connect(this.vocalsGain!);
+    this.vocalsGain!.connect(this.stemSum!);
+    
+    this.drumsFilter1!.connect(this.drumsFilter2!);
+    this.drumsFilter2!.connect(this.drumsGain!);
+    this.drumsGain!.connect(this.stemSum!);
+    
+    this.bassFilter1!.connect(this.bassFilter2!);
+    this.bassFilter2!.connect(this.bassGain!);
+    this.bassGain!.connect(this.stemSum!);
+    
+    this.otherFilter1!.connect(this.otherFilter2!);
+    this.otherFilter2!.connect(this.otherGain!);
+    this.otherGain!.connect(this.stemSum!);
+    
+    this.stemSum!.connect(this.stemWetGain!);
+    
+    // stemDryGain + stemWetGain -> DJ FX input
+    this.stemDryGain!.connect(this.fxDryGainA!);
+    this.stemDryGain!.connect(this.djFilterA!);
+    this.stemWetGain!.connect(this.fxDryGainA!);
+    this.stemWetGain!.connect(this.djFilterA!);
     
     // FX chain
     this.djFilterA!.connect(this.echoDryGainA!);
@@ -1328,6 +1562,100 @@ export class AudioEngine {
     this.setEchoMixA(0);
     this.setDjFilterValueB(0);
     this.setEchoMixB(0);
+  }
+
+  // Stem controls
+  setStemGain(stem: StemName, gain: number): void {
+    this.state.stems[stem].gain = Math.max(0, Math.min(2, gain));
+    this.updateAllStemGains();
+    this.notifyListeners();
+  }
+
+  setStemMute(stem: StemName, muted: boolean): void {
+    this.state.stems[stem].muted = muted;
+    // If muting a soloed stem, remove solo
+    if (muted && this.state.stems[stem].solo) {
+      this.state.stems[stem].solo = false;
+    }
+    this.updateAllStemGains();
+    this.notifyListeners();
+  }
+
+  toggleStemMute(stem: StemName): void {
+    this.setStemMute(stem, !this.state.stems[stem].muted);
+  }
+
+  setStemSolo(stem: StemName, solo: boolean): void {
+    this.state.stems[stem].solo = solo;
+    // If soloing, unmute
+    if (solo) {
+      this.state.stems[stem].muted = false;
+    }
+    this.updateAllStemGains();
+    this.notifyListeners();
+  }
+
+  toggleStemSolo(stem: StemName): void {
+    this.setStemSolo(stem, !this.state.stems[stem].solo);
+  }
+
+  setStemsEnabled(enabled: boolean): void {
+    this.state.stems.enabled = enabled;
+    this.updateAllStemGains();
+    this.notifyListeners();
+  }
+
+  toggleStemsEnabled(): void {
+    this.setStemsEnabled(!this.state.stems.enabled);
+  }
+
+  // Preset modes
+  setAcapellaMode(): void {
+    this.state.stems.vocals.gain = 2;
+    this.state.stems.drums.gain = 0;
+    this.state.stems.bass.gain = 0;
+    this.state.stems.other.gain = 0;
+    this.state.stems.vocals.muted = false;
+    this.state.stems.drums.muted = true;
+    this.state.stems.bass.muted = true;
+    this.state.stems.other.muted = true;
+    this.state.stems.vocals.solo = false;
+    this.state.stems.drums.solo = false;
+    this.state.stems.bass.solo = false;
+    this.state.stems.other.solo = false;
+    this.state.stems.enabled = true;
+    this.updateAllStemGains();
+    this.notifyListeners();
+  }
+
+  setInstrumentalMode(): void {
+    this.state.stems.vocals.gain = 0;
+    this.state.stems.drums.gain = 1;
+    this.state.stems.bass.gain = 1;
+    this.state.stems.other.gain = 1;
+    this.state.stems.vocals.muted = true;
+    this.state.stems.drums.muted = false;
+    this.state.stems.bass.muted = false;
+    this.state.stems.other.muted = false;
+    this.state.stems.vocals.solo = false;
+    this.state.stems.drums.solo = false;
+    this.state.stems.bass.solo = false;
+    this.state.stems.other.solo = false;
+    this.state.stems.enabled = true;
+    this.updateAllStemGains();
+    this.notifyListeners();
+  }
+
+  resetStems(): void {
+    this.state.stems = {
+      vocals: { gain: 1, muted: false, solo: false },
+      drums: { gain: 1, muted: false, solo: false },
+      bass: { gain: 1, muted: false, solo: false },
+      other: { gain: 1, muted: false, solo: false },
+      enabled: true,
+    };
+    this.updateAllStemGains();
+    this.notifyListeners();
   }
 
   // Recording

@@ -7,6 +7,7 @@ import { MiniPlayer } from './components/MiniPlayer';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { EQPage } from './pages/EQPage';
 import { DJPage } from './pages/DJPage';
+import { StemsPage } from './pages/StemsPage';
 import './App.css';
 
 function formatTime(seconds: number): string {
@@ -113,6 +114,12 @@ function AppContent() {
         e.preventDefault();
         navigate('/dj');
         showToast('DJ Page');
+        return;
+      }
+      if (code === 'Digit3') {
+        e.preventDefault();
+        navigate('/stems');
+        showToast('Stems Page');
         return;
       }
     }
@@ -458,12 +465,19 @@ function AppContent() {
           >
             DJ
           </NavLink>
+          <NavLink 
+            to="/stems" 
+            className={({ isActive }) => `nav-tab ${isActive ? 'active' : ''}`}
+          >
+            STEMS
+          </NavLink>
         </nav>
 
         <main className="app-main">
           <Routes>
             <Route path="/eq" element={<EQPage />} />
             <Route path="/dj" element={<DJPage />} />
+            <Route path="/stems" element={<StemsPage />} />
             <Route path="*" element={<Navigate to="/eq" replace />} />
           </Routes>
         </main>

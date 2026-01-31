@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { audioEngine, AudioEngineState, UserPreset, USER_PRESETS_KEY, HotCue } from '../audio/AudioEngine';
+import { audioEngine, AudioEngineState, UserPreset, USER_PRESETS_KEY, HotCue, StemName } from '../audio/AudioEngine';
 
 interface AudioEngineContextType {
   state: AudioEngineState;
@@ -46,6 +46,18 @@ interface AudioEngineContextType {
   setAllGains: (gains: number[]) => void;
   setEqBypass: (bypass: boolean) => void;
   switchSlot: (slot: 'A' | 'B') => void;
+  
+  // Stems (Deck A)
+  setStemGain: (stem: StemName, gain: number) => void;
+  setStemMute: (stem: StemName, muted: boolean) => void;
+  toggleStemMute: (stem: StemName) => void;
+  setStemSolo: (stem: StemName, solo: boolean) => void;
+  toggleStemSolo: (stem: StemName) => void;
+  setStemsEnabled: (enabled: boolean) => void;
+  toggleStemsEnabled: () => void;
+  setAcapellaMode: () => void;
+  setInstrumentalMode: () => void;
+  resetStems: () => void;
   
   // DJ FX - Deck A
   setPlaybackRateA: (rate: number) => void;
@@ -208,6 +220,18 @@ export function AudioEngineProvider({ children }: { children: ReactNode }) {
     setAllGains: (gains) => audioEngine.setAllGains(gains),
     setEqBypass: (bypass) => audioEngine.setEqBypass(bypass),
     switchSlot: (slot) => audioEngine.switchSlot(slot),
+    
+    // Stems
+    setStemGain: (stem, gain) => audioEngine.setStemGain(stem, gain),
+    setStemMute: (stem, muted) => audioEngine.setStemMute(stem, muted),
+    toggleStemMute: (stem) => audioEngine.toggleStemMute(stem),
+    setStemSolo: (stem, solo) => audioEngine.setStemSolo(stem, solo),
+    toggleStemSolo: (stem) => audioEngine.toggleStemSolo(stem),
+    setStemsEnabled: (enabled) => audioEngine.setStemsEnabled(enabled),
+    toggleStemsEnabled: () => audioEngine.toggleStemsEnabled(),
+    setAcapellaMode: () => audioEngine.setAcapellaMode(),
+    setInstrumentalMode: () => audioEngine.setInstrumentalMode(),
+    resetStems: () => audioEngine.resetStems(),
     
     // DJ FX - Deck A
     setPlaybackRateA: (rate) => audioEngine.setPlaybackRateA(rate),

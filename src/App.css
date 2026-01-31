@@ -2362,3 +2362,316 @@ audio {
     width: 100%;
   }
 }
+
+/* ==================== STEMS PAGE ==================== */
+
+.stems-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.stems-header {
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+.stems-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 1px;
+  margin: 0 0 0.25rem 0;
+}
+
+.stems-subtitle {
+  font-size: 0.8125rem;
+  color: var(--text-tertiary);
+  margin: 0;
+}
+
+.stems-source-card .card-header {
+  margin-bottom: 0.75rem;
+}
+
+.stems-waveform-card {
+  padding: 1rem;
+}
+
+.stems-waveform {
+  height: 80px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 0.75rem;
+}
+
+.stems-waveform .waveform-canvas {
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+
+.stems-transport {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.stems-play-btn {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(168, 85, 247, 0.2);
+  color: #a855f7;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.stems-play-btn:hover {
+  background: rgba(168, 85, 247, 0.3);
+}
+
+.stems-time {
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+/* Stem Controls Card */
+.stems-controls-card .card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.stems-master-toggle .btn {
+  font-size: 0.6875rem;
+  padding: 0.375rem 0.75rem;
+}
+
+.stems-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  transition: opacity 0.2s ease;
+}
+
+.stems-grid.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+@media (max-width: 900px) {
+  .stems-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  .stems-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Individual Stem Control */
+.stem-control {
+  --stem-color: #a855f7;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  transition: all 0.15s ease;
+}
+
+.stem-control:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.stem-control.active {
+  border-color: var(--stem-color);
+  box-shadow: 0 0 20px color-mix(in srgb, var(--stem-color) 15%, transparent);
+}
+
+.stem-control.muted {
+  opacity: 0.5;
+}
+
+.stem-control.solo {
+  border-color: #fbbf24;
+  box-shadow: 0 0 20px rgba(251, 191, 36, 0.2);
+}
+
+.stem-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.stem-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--stem-color) 15%, transparent);
+  color: var(--stem-color);
+  border-radius: 10px;
+}
+
+.stem-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.stem-slider-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.stem-slider {
+  width: 100%;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.stem-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  background: var(--stem-color);
+  border-radius: 50%;
+  cursor: grab;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.stem-slider:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.stem-slider-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.5625rem;
+  color: var(--text-tertiary);
+}
+
+.stem-value {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--stem-color);
+  min-width: 40px;
+  text-align: center;
+}
+
+.stem-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.stem-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: inherit;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-tertiary);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.stem-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+}
+
+.stem-mute.active {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.stem-solo.active {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
+/* Presets */
+.stems-presets-card .card-header {
+  margin-bottom: 0.75rem;
+}
+
+.stems-presets {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.btn-preset {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  font-family: inherit;
+  background: rgba(168, 85, 247, 0.1);
+  color: #a855f7;
+  border: 1px solid rgba(168, 85, 247, 0.2);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-preset:hover {
+  background: rgba(168, 85, 247, 0.2);
+  border-color: rgba(168, 85, 247, 0.3);
+}
+
+.preset-icon {
+  font-size: 1rem;
+}
+
+/* Info */
+.stems-info {
+  padding: 1rem;
+  background: rgba(168, 85, 247, 0.05);
+  border: 1px solid rgba(168, 85, 247, 0.1);
+  border-radius: 8px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.stems-info p {
+  margin: 0;
+}
+
+.stems-info strong {
+  color: var(--text-primary);
+}

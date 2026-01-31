@@ -72,6 +72,7 @@ const shortcutGroups = [
       { key: 'R', action: 'Toggle Recording' },
       { key: 'Ctrl+Alt+1', action: 'Go to EQ page' },
       { key: 'Ctrl+Alt+2', action: 'Go to DJ page' },
+      { key: 'Ctrl+Alt+3', action: 'Go to Stems page' },
       { key: '?', action: 'Show this help' },
       { key: 'Esc', action: 'Close modal' },
     ],
