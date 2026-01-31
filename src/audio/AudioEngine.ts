@@ -901,6 +901,39 @@ export class AudioEngine {
     }
   }
 
+  // Panic / Kill FX - reset all DJ effects to neutral
+  panicFx(): void {
+    this.cancelMorph();
+    this.setDjFilterValue(0);
+    this.setEchoMix(0);
+  }
+
+  // Move loop window by offset
+  moveLoopWindow(offsetSeconds: number): void {
+    if (this.state.loopIn === null || this.state.loopOut === null) return;
+    
+    const duration = this.state.duration || 0;
+    const loopLength = this.state.loopOut - this.state.loopIn;
+    
+    let newIn = this.state.loopIn + offsetSeconds;
+    let newOut = this.state.loopOut + offsetSeconds;
+    
+    // Clamp to track bounds
+    if (newIn < 0) {
+      newIn = 0;
+      newOut = loopLength;
+    }
+    if (newOut > duration) {
+      newOut = duration;
+      newIn = Math.max(0, duration - loopLength);
+    }
+    
+    this.state.loopIn = newIn;
+    this.state.loopOut = newOut;
+    this.normalizeLoopMarkers();
+    this.notifyListeners();
+  }
+
   // Recording
   startRecording(): void {
     if (!this.mediaStreamDest || this.state.isRecording) return;

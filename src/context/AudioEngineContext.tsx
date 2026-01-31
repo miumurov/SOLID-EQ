@@ -47,6 +47,8 @@ interface AudioEngineContextType {
   morphToScene: (target: 'A' | 'B', durationMs?: number) => void;
   cancelMorph: () => void;
   applyDjParams: (params: DJSceneParams) => void;
+  panicFx: () => void;
+  moveLoopWindow: (offsetSeconds: number) => void;
   
   // Safe Mode
   setSafeMode: (enabled: boolean) => void;
@@ -156,6 +158,8 @@ export function AudioEngineProvider({ children }: { children: ReactNode }) {
     morphToScene: (target, durationMs) => audioEngine.morphToScene(target, durationMs),
     cancelMorph: () => audioEngine.cancelMorph(),
     applyDjParams: (params) => audioEngine.applyDjParams(params),
+    panicFx: () => audioEngine.panicFx(),
+    moveLoopWindow: (offset) => audioEngine.moveLoopWindow(offset),
     
     // Safe Mode
     setSafeMode: (enabled) => audioEngine.setSafeMode(enabled),

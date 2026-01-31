@@ -273,6 +273,19 @@ export function DJPage() {
 
   return (
     <div className="page dj-page">
+      {/* Keyboard HUD */}
+      <div className="dj-hud">
+        <span className="hud-hint">
+          <kbd>1</kbd>–<kbd>4</kbd> cues · 
+          <kbd>Shift</kbd>+<kbd>1</kbd>–<kbd>4</kbd> set · 
+          <kbd>Space</kbd> play · 
+          <kbd>F</kbd> FX · 
+          <kbd>R</kbd> rec · 
+          <kbd>S</kbd> safe · 
+          <kbd>?</kbd> help
+        </span>
+      </div>
+
       {/* Deck Card */}
       <section className="card deck-card">
         <div className="card-header">

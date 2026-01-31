@@ -1903,8 +1903,42 @@ audio {
   gap: 0.5rem;
 }
 
+/* DJ HUD */
+.dj-hud {
+  padding: 0.5rem 0.75rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+}
+
+.hud-hint {
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  justify-content: center;
+}
+
+.hud-hint kbd {
+  padding: 0.125rem 0.375rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
 /* DJ Page Responsive */
 @media (max-width: 640px) {
+  .dj-hud {
+    display: none;
+  }
+
   .effect-controls {
     grid-template-columns: 1fr;
     gap: 0.75rem;
